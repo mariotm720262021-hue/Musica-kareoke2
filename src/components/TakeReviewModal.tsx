@@ -369,7 +369,11 @@ export const TakeReviewModal: React.FC<TakeReviewModalProps> = ({
             className="px-5 py-2.5 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold flex items-center gap-2 shadow-lg shadow-emerald-950 transition-all active:scale-95 cursor-pointer"
           >
             <CheckCircle2 className="w-4 h-4" />
-            <span>Keep Take (Save to Track)</span>
+            <span>
+              {targetMode === 'new_track'
+                ? '✅ Guardar en Nueva Pista (Sin Sobreescribir)'
+                : 'Guardar en Pista Seleccionada'}
+            </span>
           </button>
         </div>
       </div>

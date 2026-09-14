@@ -231,3 +231,153 @@ export class ToneAutoTuneEngine {
     }
   }
 }
+
+/**
+ * Detects fundamental frequency using normalized autocorrelation on a vocal frame
+ */
+export function detectPitch(
+  samples: Float32Array,
+  sampleRate: number
+): { freq: number; clarity: number; midiNote: number } {
+  const minFreq = 65; // C2 ~ 65Hz
+  const maxFreq = 950; // B5 ~ 987Hz
+  const maxLag = Math.floor(sampleRate / minFreq);
+  const minLag = Math.floor(sampleRate / maxFreq);
+
+  let bestLag = 0;
+  let maxCorr = -1;
+
+  let energy = 0;
+  for (let i = 0; i < samples.length; i++) {
+    energy += samples[i] * samples[i];
+  }
+  if (energy < 0.0005) {
+    return { freq: 0, clarity: 0, midiNote: 0 };
+  }
+
+  for (let lag = minLag; lag <= maxLag; lag++) {
+    let corr = 0;
+    for (let i = 0; i < samples.length - lag; i++) {
+      corr += samples[i] * samples[i + lag];
+    }
+    const normCorr = corr / energy;
+    if (normCorr > maxCorr) {
+      maxCorr = normCorr;
+      bestLag = lag;
+    }
+  }
+
+  if (maxCorr > 0.32 && bestLag > 0) {
+    const freq = sampleRate / bestLag;
+    const midiNote = 69 + 12 * Math.log2(freq / 440);
+    return { freq, clarity: maxCorr, midiNote };
+  }
+
+  return { freq: 0, clarity: 0, midiNote: 0 };
+}
+
+/**
+ * Transforms an AudioBuffer with genuine musical Auto-Tune quantization.
+ * Detects pitch frame-by-frame and re-synthesizes the vocal onto the chosen musical scale.
+ */
+export function tuneVocalAudioBuffer(
+  inputBuffer: AudioBuffer,
+  ctx: AudioContext,
+  rootKey = 'C',
+  scale = 'major',
+  intensity = 80
+): AudioBuffer {
+  if (intensity <= 0) return inputBuffer;
+
+  const sampleRate = inputBuffer.sampleRate;
+  const numChannels = inputBuffer.numberOfChannels;
+  const length = inputBuffer.length;
+  const outputBuffer = ctx.createBuffer(numChannels, length, sampleRate);
+
+  const allowedPitches = getAllowedPitchClasses(rootKey, scale);
+  const frameSize = 1024;
+  const hopSize = 256; // 75% overlap for ultra-smooth pitch transitions
+  const numFrames = Math.floor((length - frameSize) / hopSize);
+
+  // Pre-calculate Hann window
+  const hannWindow = new Float32Array(frameSize);
+  for (let i = 0; i < frameSize; i++) {
+    hannWindow[i] = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (frameSize - 1)));
+  }
+
+  for (let c = 0; c < numChannels; c++) {
+    const inputData = inputBuffer.getChannelData(c);
+    const outputData = outputBuffer.getChannelData(c);
+    const windowSum = new Float32Array(length);
+
+    const frameBuf = new Float32Array(frameSize);
+
+    for (let f = 0; f < numFrames; f++) {
+      const start = f * hopSize;
+      for (let i = 0; i < frameSize; i++) {
+        frameBuf[i] = inputData[start + i];
+      }
+
+      // Pitch detection
+      const pitchInfo = detectPitch(frameBuf, sampleRate);
+      let pitchFactor = 1.0;
+
+      if (pitchInfo.freq > 0 && pitchInfo.clarity > 0.32) {
+        const midi = pitchInfo.midiNote;
+        const noteClass = ((Math.round(midi) % 12) + 12) % 12;
+
+        let bestDist = 999;
+        let targetMidi = midi;
+
+        for (let diff = -6; diff <= 6; diff++) {
+          const candidate = ((noteClass + diff) % 12 + 12) % 12;
+          if (allowedPitches.has(candidate)) {
+            if (Math.abs(diff) < Math.abs(bestDist)) {
+              bestDist = diff;
+              targetMidi = Math.round(midi) + diff;
+            }
+          }
+        }
+
+        const semitoneShift = (targetMidi - midi) * (intensity / 100);
+        // Clamping to avoid crazy extreme warping
+        const clampedShift = Math.max(-6, Math.min(6, semitoneShift));
+        pitchFactor = Math.pow(2, clampedShift / 12);
+      }
+
+      // Granular resample with Hann window
+      for (let i = 0; i < frameSize; i++) {
+        const center = frameSize / 2;
+        const origOffset = i - center;
+        const resampledOffset = origOffset * pitchFactor;
+        const readIdx = center + resampledOffset;
+
+        let sampleVal = 0;
+        if (readIdx >= 0 && readIdx < frameSize - 1) {
+          const i0 = Math.floor(readIdx);
+          const i1 = i0 + 1;
+          const frac = readIdx - i0;
+          sampleVal = frameBuf[i0] * (1 - frac) + frameBuf[i1] * frac;
+        } else {
+          sampleVal = frameBuf[i];
+        }
+
+        const outIdx = start + i;
+        if (outIdx < length) {
+          outputData[outIdx] += sampleVal * hannWindow[i];
+          windowSum[outIdx] += hannWindow[i];
+        }
+      }
+    }
+
+    // Normalize overlapping window gains to prevent volume fluctuation
+    for (let i = 0; i < length; i++) {
+      if (windowSum[i] > 0.05) {
+        outputData[i] /= windowSum[i];
+      }
+    }
+  }
+
+  return outputBuffer;
+}
+
