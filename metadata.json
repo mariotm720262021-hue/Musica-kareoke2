@@ -1,0 +1,6 @@
+{
+  "name": "Web Audio DAW & Recording Studio",
+  "description": "Professional multi-track Web Audio DAW with stem recording, audition buffer workflow, vocal DSP chain, and AI audio restoration.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
