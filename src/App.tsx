@@ -19,10 +19,8 @@ import {
   TrackDspNodes,
 } from './audio/dspChain';
 import { AudioRecorder } from './audio/audioRecorder';
-import { calculateAutoTuneShift, ToneAutoTuneEngine, tuneVocalAudioBuffer } from './audio/autoTuneEngine';
 import { generateDemoStems } from './audio/synthesizerDemo';
 import { TransportBar } from './components/TransportBar';
-import { StudioQuickBar } from './components/StudioQuickBar';
 import { TrackHeader } from './components/TrackHeader';
 import { TimelineView } from './components/TimelineView';
 import { VocalDspRack } from './components/VocalDspRack';
@@ -33,12 +31,6 @@ import { ExportModal } from './components/ExportModal';
 const DEFAULT_VOCAL_DSP: VocalDspConfig = {
   highPassEnabled: true,
   highPassFreq: 80, // Low-cut at 80Hz
-  lowCutFreq: 80,
-  pitchCorrection: 40,
-  pitchCorrectionKey: 'C',
-  pitchCorrectionScale: 'major',
-  warmth: 25,
-  reverbWet: 0.28,
   compressorEnabled: true,
   threshold: -22,
   ratio: 3.5,
@@ -77,7 +69,6 @@ export default function App() {
   const masterBusRef = useRef<MasterBusSystem | null>(null);
   const trackDspMapRef = useRef<{ [trackId: string]: TrackDspNodes }>({});
   const activeSourcesRef = useRef<{ [trackId: string]: AudioBufferSourceNode }>({});
-  const activePitchShiftersRef = useRef<{ [trackId: string]: ToneAutoTuneEngine }>({});
   const recorderRef = useRef<AudioRecorder | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -179,8 +170,6 @@ export default function App() {
   const [activeInspectorTab, setActiveInspectorTab] = useState<'vocal' | 'ai' | null>('vocal');
   const [recordedTakeForReview, setRecordedTakeForReview] = useState<RecordedTake | null>(null);
   const [showExportModal, setShowExportModal] = useState(false);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [isTuning, setIsTuning] = useState(false);
 
   // Metering State
   const [masterPeakL, setMasterPeakL] = useState(0);
@@ -296,16 +285,6 @@ export default function App() {
       }
     });
     activeSourcesRef.current = {};
-
-    (Object.values(activePitchShiftersRef.current) as ToneAutoTuneEngine[]).forEach((shifter) => {
-      try {
-        shifter.disconnect();
-        shifter.dispose();
-      } catch {
-        // already disposed
-      }
-    });
-    activePitchShiftersRef.current = {};
   }, []);
 
   // Launch audio playback for all audible tracks aligned with timeline currentTime
@@ -332,33 +311,7 @@ export default function App() {
 
         const src = ctx.createBufferSource();
         src.buffer = track.audioBuffer;
-
-        // Auto-Tune & Pitch Shift: apply musical scale quantization and transpose
-        let totalSemitones = track.vocalDsp.pitchShift || 0;
-        if (track.vocalDsp.pitchCorrection > 0) {
-          const autoTuneOffset = calculateAutoTuneShift(
-            track.vocalDsp.pitchShift || 0,
-            track.vocalDsp.pitchCorrectionKey || 'C',
-            track.vocalDsp.pitchCorrectionScale || 'major',
-            track.vocalDsp.pitchCorrection
-          );
-          totalSemitones += autoTuneOffset;
-        }
-
-        if (totalSemitones !== 0) {
-          try {
-            const pitchEngine = new ToneAutoTuneEngine(ctx);
-            pitchEngine.setPitch(totalSemitones);
-            pitchEngine.connectSource(src);
-            pitchEngine.connectDestination(dsp.inputNode);
-            activePitchShiftersRef.current[track.id] = pitchEngine;
-          } catch {
-            src.playbackRate.value = Math.pow(2, totalSemitones / 12);
-            src.connect(dsp.inputNode);
-          }
-        } else {
-          src.connect(dsp.inputNode);
-        }
+        src.connect(dsp.inputNode);
 
         // Calculate offset into the audio buffer
         let bufferOffset = 0;
@@ -670,88 +623,7 @@ export default function App() {
 
   // Update specific track properties
   const handleUpdateTrack = (trackId: string, updates: Partial<AudioTrack>) => {
-    setTracks((prev) =>
-      prev.map((t) => {
-        if (t.id === trackId) {
-          const updatedTrack = { ...t, ...updates };
-          const dspNodes = trackDspMapRef.current[trackId];
-          if (dspNodes) {
-            if (updates.vocalDsp) {
-              dspNodes.updateVocalDsp(updatedTrack.vocalDsp);
-            }
-            if (updates.aiEnhancer) {
-              dspNodes.updateAiEnhancer(updatedTrack.aiEnhancer);
-            }
-            if (updates.volume !== undefined) {
-              dspNodes.faderGain.gain.setValueAtTime(
-                updates.volume,
-                audioCtxRef.current?.currentTime || 0
-              );
-            }
-          }
-          return updatedTrack;
-        }
-        return t;
-      })
-    );
-  };
-
-  // Tune track with genuine musical Auto-Tune algorithm
-  const handleTuneTrack = (trackId: string) => {
-    const track = tracks.find((t) => t.id === trackId);
-    if (!track || !track.audioBuffer) {
-      setToastMessage('⚠️ Esta pista no tiene audio grabado aún. Graba una toma primero.');
-      setTimeout(() => setToastMessage(null), 3000);
-      return;
-    }
-
-    try {
-      setIsTuning(true);
-      const { ctx } = ensureAudioEngine();
-      const intensity = track.vocalDsp.pitchCorrection > 0 ? track.vocalDsp.pitchCorrection : 80;
-      const key = track.vocalDsp.pitchCorrectionKey || 'C';
-      const scale = track.vocalDsp.pitchCorrectionScale || 'major';
-
-      const tunedBuffer = tuneVocalAudioBuffer(
-        track.audioBuffer,
-        ctx,
-        key,
-        scale,
-        intensity
-      );
-      const newPeaks = calculatePeaks(tunedBuffer, 600);
-
-      setTracks((prev) =>
-        prev.map((t) =>
-          t.id === trackId
-            ? {
-                ...t,
-                audioBuffer: tunedBuffer,
-                peaks: newPeaks,
-                vocalDsp: {
-                  ...t.vocalDsp,
-                  pitchCorrection: intensity,
-                },
-              }
-            : t
-        )
-      );
-
-      // Reset live pitch shifter for this track since the buffer is already quantized
-      const pitchShifter = activePitchShiftersRef.current[trackId];
-      if (pitchShifter) {
-        pitchShifter.setPitch(0);
-      }
-
-      setToastMessage(`✨ Pista "${track.name}" afinada con éxito en Tono ${key} (${scale}, ${intensity}% corrección)!`);
-      setTimeout(() => setToastMessage(null), 4000);
-    } catch (err) {
-      console.error('Error auto-tuning track:', err);
-      setToastMessage('Error al afinar la pista.');
-      setTimeout(() => setToastMessage(null), 3000);
-    } finally {
-      setIsTuning(false);
-    }
+    setTracks((prev) => prev.map((t) => (t.id === trackId ? { ...t, ...updates } : t)));
   };
 
   // Delete a track
@@ -766,62 +638,28 @@ export default function App() {
     }
   };
 
-  // "Keep or Discard": Commit take from review modal
-  const handleCommitTake = (
-    targetTrackId: string,
-    latencyOffsetMs: number,
-    asNewTrack = true
-  ) => {
+  // "Don't save until OK": Commit take from review modal
+  const handleCommitTake = (targetTrackId: string, latencyOffsetMs: number) => {
     if (!recordedTakeForReview) return;
 
     const takeBuffer = recordedTakeForReview.audioBuffer;
     const peaks = calculatePeaks(takeBuffer, 600);
     const finalStartTime = Math.max(0, recordedTakeForReview.startTime + latencyOffsetMs / 1000);
 
-    if (asNewTrack) {
-      // Append as brand new audio track lane below existing tracks (never overwriting)
-      const trackColors = ['#f43f5e', '#ec4899', '#8b5cf6', '#3b82f6', '#10b981', '#f59e0b'];
-      const newId = 'track_' + Date.now();
-      const vocalCount = tracks.filter((t) => t.type === 'vocal').length + 1;
-      const newTrack: AudioTrack = {
-        id: newId,
-        name: `Vocal Toma ${vocalCount}`,
-        type: 'vocal',
-        color: trackColors[tracks.length % trackColors.length],
-        volume: 0.95,
-        pan: 0,
-        muted: false,
-        solo: false,
-        isArmed: false,
-        audioBuffer: takeBuffer,
-        peaks,
-        startTime: finalStartTime,
-        duration: takeBuffer.duration,
-        vocalDsp: { ...DEFAULT_VOCAL_DSP },
-        aiEnhancer: { ...DEFAULT_AI_ENHANCER },
-      };
-      setTracks((prev) => [...prev, newTrack]);
-      setSelectedTrackId(newId);
-      setToastMessage(`🎙️ ¡Toma guardada en nueva pista "${newTrack.name}"!`);
-      setTimeout(() => setToastMessage(null), 3500);
-    } else {
-      setTracks((prev) =>
-        prev.map((t) => {
-          if (t.id === targetTrackId) {
-            return {
-              ...t,
-              audioBuffer: takeBuffer,
-              peaks,
-              startTime: finalStartTime,
-              duration: takeBuffer.duration,
-            };
-          }
-          return t;
-        })
-      );
-      setToastMessage(`🎙️ Audio guardado en la pista.`);
-      setTimeout(() => setToastMessage(null), 3000);
-    }
+    setTracks((prev) =>
+      prev.map((t) => {
+        if (t.id === targetTrackId) {
+          return {
+            ...t,
+            audioBuffer: takeBuffer,
+            peaks,
+            startTime: finalStartTime,
+            duration: takeBuffer.duration,
+          };
+        }
+        return t;
+      })
+    );
 
     setRecordedTakeForReview(null);
   };
@@ -874,13 +712,6 @@ export default function App() {
 
   return (
     <div className="flex flex-col h-screen w-screen bg-neutral-950 text-neutral-100 overflow-hidden font-sans">
-      {/* Toast Notification Banner */}
-      {toastMessage && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-neutral-900/95 border border-cyan-500/80 text-white text-xs px-4 py-2.5 rounded-lg shadow-2xl flex items-center gap-2 backdrop-blur animate-fade-in">
-          <span className="font-bold">{toastMessage}</span>
-        </div>
-      )}
-
       {/* Hidden File Input for Audio Import */}
       <input
         ref={fileInputRef}
@@ -908,20 +739,6 @@ export default function App() {
         masterPeakL={masterPeakL}
         masterPeakR={masterPeakR}
         hasArmedTrack={tracks.some((t) => t.isArmed)}
-      />
-
-      {/* Studio Quick Bar: Mic V1 Limpio • Auto-Tune Rápido • Compresor Anti-Gallitos • Exportar */}
-      <StudioQuickBar
-        selectedTrack={selectedTrack}
-        onUpdateTrackDsp={(trackId, updates) =>
-          handleUpdateTrack(trackId, {
-            vocalDsp: { ...(tracks.find((t) => t.id === trackId)?.vocalDsp || DEFAULT_VOCAL_DSP), ...updates },
-          })
-        }
-        onTuneTrackNow={handleTuneTrack}
-        onOpenDspInspector={() => setActiveInspectorTab('vocal')}
-        onOpenExport={() => setShowExportModal(true)}
-        isTuning={isTuning}
       />
 
       {/* Main Workspace (Track Headers on Left, Canvas Timeline on Right) */}
@@ -956,7 +773,6 @@ export default function App() {
                   setActiveInspectorTab(tab);
                 }}
                 peakLevel={trackPeaks[track.id] || 0}
-                onTuneTrack={() => handleTuneTrack(track.id)}
               />
             ))}
           </div>

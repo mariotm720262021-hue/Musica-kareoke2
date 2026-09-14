@@ -288,11 +288,11 @@ export const TransportBar: React.FC<TransportBarProps> = ({
           <button
             id="export-mix-btn"
             onClick={onExport}
-            title="Exportar canción final en formato MP3 o WAV con foto de portada y metadatos"
-            className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-cyan-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 text-white text-xs font-bold flex items-center gap-1.5 transition-all shadow-md shadow-cyan-950 active:scale-95 cursor-pointer"
+            title="Export Final Mixdown or Stems"
+            className="px-3 py-1.5 rounded-lg bg-cyan-700 hover:bg-cyan-600 text-white text-xs font-medium flex items-center gap-1.5 transition-all shadow-md shadow-cyan-950 active:scale-95"
           >
             <Download className="w-3.5 h-3.5" />
-            <span>Exportar (MP3 / WAV + Portada)</span>
+            <span>Export WAV</span>
           </button>
         </div>
       </div>

@@ -21,7 +21,6 @@ interface TrackHeaderProps {
   onToggleArm: () => void;
   onOpenInspector: (tab: 'vocal' | 'ai') => void;
   peakLevel: number;
-  onTuneTrack?: () => void;
 }
 
 export const TrackHeader: React.FC<TrackHeaderProps> = ({
@@ -33,7 +32,6 @@ export const TrackHeader: React.FC<TrackHeaderProps> = ({
   onToggleArm,
   onOpenInspector,
   peakLevel,
-  onTuneTrack,
 }) => {
   const [isEditingName, setIsEditingName] = useState(false);
   const [nameVal, setNameVal] = useState(track.name);
@@ -186,60 +184,23 @@ export const TrackHeader: React.FC<TrackHeaderProps> = ({
           {track.solo ? <Headphones className="w-3 h-3" /> : 'S'}
         </button>
 
-        {/* Vocal DSP & Auto-Tune Chain toggle / badge */}
+        {/* Vocal DSP Chain toggle / badge */}
         <button
           id={`track-vocal-dsp-${track.id}`}
           onClick={(e) => {
             e.stopPropagation();
             onOpenInspector('vocal');
           }}
-          title="Abrir Rack de Auto-Tune & Compresor Anti-Gallitos"
-          className={`px-2 h-6 rounded flex items-center gap-1 text-[10px] font-semibold transition-all cursor-pointer ${
-            track.vocalDsp.pitchCorrection > 0
-              ? 'bg-emerald-950 border border-emerald-500 text-emerald-300 shadow-sm'
-              : track.vocalDsp.compressorEnabled || track.vocalDsp.reverbSend > 0.05
+          title="Open Vocal Chain DSP (80Hz Cut, Compressor, EQ, Formants, Space)"
+          className={`px-1.5 h-6 rounded flex items-center gap-1 text-[10px] font-medium transition-all ${
+            track.vocalDsp.compressorEnabled || track.vocalDsp.reverbSend > 0.05
               ? 'bg-rose-950/80 border border-rose-700/80 text-rose-300'
               : 'bg-neutral-800 text-neutral-400 hover:text-white'
           }`}
         >
-          {track.vocalDsp.pitchCorrection > 0 ? (
-            <>
-              <Sparkles className="w-2.5 h-2.5 text-emerald-400" />
-              <span>Tune {track.vocalDsp.pitchCorrection}%</span>
-            </>
-          ) : (
-            <>
-              <Sliders className="w-2.5 h-2.5" />
-              <span>Auto-Tune / FX</span>
-            </>
-          )}
+          <Sliders className="w-2.5 h-2.5" />
+          <span>DSP</span>
         </button>
-
-        {/* Instant Auto-Tune Processing Trigger */}
-        {track.audioBuffer && onTuneTrack && (
-          <button
-            id={`track-tune-now-${track.id}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              onTuneTrack();
-            }}
-            title="Afinar inmediatamente el audio de esta pista con Auto-Tune"
-            className="px-1.5 h-6 rounded bg-emerald-600 hover:bg-emerald-500 text-white flex items-center gap-0.5 text-[10px] font-bold shadow-sm transition-all active:scale-95 cursor-pointer"
-          >
-            <Sparkles className="w-2.5 h-2.5" />
-            <span>Afinar</span>
-          </button>
-        )}
-
-        {/* Anti-Gallitos Badge */}
-        {track.vocalDsp.compressorEnabled && track.vocalDsp.ratio >= 5 && (
-          <span
-            title="Compresor Anti-Gallitos activado: aplana quiebres de voz y picos"
-            className="px-1.5 h-6 rounded bg-rose-950/90 border border-rose-600/70 text-rose-300 flex items-center gap-0.5 text-[9px] font-bold"
-          >
-            🛡️ Anti-Gallitos
-          </span>
-        )}
 
         {/* AI Audio Cleaner & Restorer badge */}
         <button
