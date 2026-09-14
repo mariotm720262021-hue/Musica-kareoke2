@@ -2,17 +2,26 @@ import { RecordedTake } from '../types/audio';
 
 export interface RecorderCallbacks {
   onLevelUpdate?: (peak: number) => void;
+  onGateStatus?: (isOpen: boolean, currentLevel: number) => void;
 }
 
 export class AudioRecorder {
   private mediaStream: MediaStream | null = null;
   private sourceNode: MediaStreamAudioSourceNode | null = null;
+  private bandpassHighpassNode: BiquadFilterNode | null = null;
+  private bandpassLowpassNode: BiquadFilterNode | null = null;
   private processorNode: ScriptProcessorNode | null = null;
   private analyserNode: AnalyserNode | null = null;
   private recordedChunks: Float32Array[] = [];
   private isRecording = false;
   private audioCtx: AudioContext;
   private animFrameId: number | null = null;
+
+  // Active Noise Gate parameters
+  public silenceThreshold = 0.018; // ~ -35dB silence threshold for room/fan/hiss
+  public gateAttack = 0.005; // 5ms attack
+  public gateRelease = 0.05; // 50ms release
+  public gateHold = 0.08; // 80ms hold
 
   constructor(audioCtx: AudioContext) {
     this.audioCtx = audioCtx;
@@ -41,23 +50,78 @@ export class AudioRecorder {
       this.analyserNode = this.audioCtx.createAnalyser();
       this.analyserNode.fftSize = 256;
 
+      // 1. Real-time Bandpass Filter (85Hz High-pass to cut rumble + 12kHz Low-pass to cut hiss)
+      this.bandpassHighpassNode = this.audioCtx.createBiquadFilter();
+      this.bandpassHighpassNode.type = 'highpass';
+      this.bandpassHighpassNode.frequency.value = 85;
+      this.bandpassHighpassNode.Q.value = 0.707;
+
+      this.bandpassLowpassNode = this.audioCtx.createBiquadFilter();
+      this.bandpassLowpassNode.type = 'lowpass';
+      this.bandpassLowpassNode.frequency.value = 12000;
+      this.bandpassLowpassNode.Q.value = 0.707;
+
+      // Connect source -> Bandpass filter chain
+      this.sourceNode.connect(this.bandpassHighpassNode);
+      this.bandpassHighpassNode.connect(this.bandpassLowpassNode);
+      this.bandpassLowpassNode.connect(this.analyserNode);
+
       // 4096 buffer size at 44.1kHz is ~92ms chunk
-      this.processorNode = this.audioCtx.createScriptProcessor(4096, 1, 1);
+      this.processorNode = this.audioCtx.createScriptProcessor(2048, 1, 1);
       this.recordedChunks = [];
       this.isRecording = true;
+
+      // Active Noise Gate state variables
+      let gateEnvelope = 0.0;
+      let lastAboveThresholdTime = 0;
+      const sampleRate = this.audioCtx.sampleRate;
 
       this.processorNode.onaudioprocess = (e) => {
         if (!this.isRecording) return;
         const inputData = e.inputBuffer.getChannelData(0);
-        // Clone samples into memory buffer
-        const copy = new Float32Array(inputData.length);
-        copy.set(inputData);
-        this.recordedChunks.push(copy);
+        const length = inputData.length;
+        const cleanOutput = new Float32Array(length);
+
+        // Compute short-term RMS to detect signal vs background noise (room noise, mic hiss, fan noise)
+        let sumSquares = 0;
+        for (let i = 0; i < length; i++) {
+          sumSquares += inputData[i] * inputData[i];
+        }
+        const rms = Math.sqrt(sumSquares / length);
+        const now = this.audioCtx.currentTime;
+
+        const isSignalPresent = rms >= this.silenceThreshold;
+        if (isSignalPresent) {
+          lastAboveThresholdTime = now;
+        }
+
+        const isHolding = now - lastAboveThresholdTime < this.gateHold;
+        const targetGate = (isSignalPresent || isHolding) ? 1.0 : 0.0;
+
+        // Apply smooth envelope smoothing to avoid any clicks/pops
+        const attackCoeff = Math.exp(-1.0 / (sampleRate * this.gateAttack));
+        const releaseCoeff = Math.exp(-1.0 / (sampleRate * this.gateRelease));
+
+        for (let i = 0; i < length; i++) {
+          const coeff = targetGate > gateEnvelope ? attackCoeff : releaseCoeff;
+          gateEnvelope = targetGate + coeff * (gateEnvelope - targetGate);
+
+          // If gate is closed (room noise/hiss/fan), force sample to 0.0 completely
+          if (gateEnvelope < 0.002) {
+            cleanOutput[i] = 0.0;
+          } else {
+            cleanOutput[i] = inputData[i] * gateEnvelope;
+          }
+        }
+
+        // Clean vocal-only audio pushed to recording buffer
+        this.recordedChunks.push(cleanOutput);
+        callbacks?.onGateStatus?.(targetGate > 0.1, rms);
       };
 
-      this.sourceNode.connect(this.analyserNode);
-      this.sourceNode.connect(this.processorNode);
-      // Connect to dummy destination to keep processor flowing
+      this.bandpassLowpassNode.connect(this.processorNode);
+
+      // Connect to dummy destination to keep processor flowing without feedback
       const muteGain = this.audioCtx.createGain();
       muteGain.gain.value = 0;
       this.processorNode.connect(muteGain);
@@ -99,6 +163,16 @@ export class AudioRecorder {
       this.processorNode.disconnect();
       this.processorNode.onaudioprocess = null;
       this.processorNode = null;
+    }
+
+    if (this.bandpassLowpassNode) {
+      this.bandpassLowpassNode.disconnect();
+      this.bandpassLowpassNode = null;
+    }
+
+    if (this.bandpassHighpassNode) {
+      this.bandpassHighpassNode.disconnect();
+      this.bandpassHighpassNode = null;
     }
 
     if (this.sourceNode) {

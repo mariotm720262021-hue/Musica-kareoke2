@@ -1,6 +1,7 @@
 export interface VocalDspConfig {
   highPassEnabled: boolean;
   highPassFreq: number; // default 80Hz
+  lowCutFreq: number; // 20 to 500 Hz
   compressorEnabled: boolean;
   threshold: number; // dB, e.g. -22
   ratio: number; // e.g. 3.5
@@ -15,9 +16,14 @@ export interface VocalDspConfig {
   highGain: number; // dB (-12 to +12)
   highFreq: number; // Hz, e.g. 9000
   pitchShift: number; // semitones (-12 to +12)
+  pitchCorrection: number; // 0 to 100%
+  pitchCorrectionKey: string; // 'C', 'C#', 'D', etc.
+  pitchCorrectionScale: 'major' | 'minor' | 'chromatic' | 'pentatonic';
+  warmth: number; // 0 to 100% saturation
   formantShift: number; // % (-50 to +50)
   formantWarmth: number; // 0 to 1
   reverbSend: number; // 0 to 1
+  reverbWet: number; // 0 to 1
   delaySend: number; // 0 to 1
   delayTime: number; // seconds, e.g. 0.3
   delayFeedback: number; // 0 to 0.9

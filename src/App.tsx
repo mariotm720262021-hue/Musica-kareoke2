@@ -31,6 +31,12 @@ import { ExportModal } from './components/ExportModal';
 const DEFAULT_VOCAL_DSP: VocalDspConfig = {
   highPassEnabled: true,
   highPassFreq: 80, // Low-cut at 80Hz
+  lowCutFreq: 80,
+  pitchCorrection: 40,
+  pitchCorrectionKey: 'C',
+  pitchCorrectionScale: 'major',
+  warmth: 25,
+  reverbWet: 0.28,
   compressorEnabled: true,
   threshold: -22,
   ratio: 3.5,

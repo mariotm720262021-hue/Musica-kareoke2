@@ -12,6 +12,23 @@ export interface TrackDspNodes {
   disconnect: () => void;
 }
 
+// Generate smooth tape / tube soft-saturation transfer curve for warmth
+function makeWarmthCurve(amount = 0.3): Float32Array {
+  const k = amount * 15;
+  const n_samples = 44100;
+  const curve = new Float32Array(n_samples);
+  for (let i = 0; i < n_samples; ++i) {
+    const x = (i * 2) / n_samples - 1;
+    if (k === 0) {
+      curve[i] = x;
+    } else {
+      // Soft hyperbolic saturation
+      curve[i] = ((1 + k) * x) / (1 + k * Math.abs(x));
+    }
+  }
+  return curve;
+}
+
 // Generate non-linear transfer curve for the Harmonic Exciter (rebuilding rich 2nd and 3rd harmonics)
 function makeExciterCurve(amount = 0.5): Float32Array {
   const k = amount * 50;
@@ -109,19 +126,24 @@ export function createTrackDsp(
   formantResonator.Q.value = 1.8;
   formantResonator.gain.value = 0;
 
-  // 5. Volume & Pan
+  // 5. Warmth & Saturation WaveShaper
+  const warmthWaveShaper = ctx.createWaveShaper();
+  warmthWaveShaper.curve = makeWarmthCurve((initialVocalDsp.warmth || 20) / 100);
+  warmthWaveShaper.oversample = '2x';
+
+  // 6. Volume & Pan
   const panNode = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
   const trackFader = ctx.createGain();
   trackFader.gain.value = initialVolume;
 
-  // 6. Sends to Reverb & Delay buses
+  // 7. Sends to Reverb & Delay buses
   const reverbSendNode = ctx.createGain();
-  reverbSendNode.gain.value = initialVocalDsp.reverbSend;
+  reverbSendNode.gain.value = initialVocalDsp.reverbWet ?? initialVocalDsp.reverbSend;
 
   const delaySendNode = ctx.createGain();
   delaySendNode.gain.value = initialVocalDsp.delaySend;
 
-  // 7. Track Analyser for real-time VU Meter
+  // 8. Track Analyser for real-time VU Meter
   const analyserNode = ctx.createAnalyser();
   analyserNode.fftSize = 256;
   analyserNode.smoothingTimeConstant = 0.8;
@@ -151,13 +173,14 @@ export function createTrackDsp(
   lowShelf.connect(midPeak);
   midPeak.connect(highShelf);
   highShelf.connect(formantResonator);
+  formantResonator.connect(warmthWaveShaper);
 
   // Vocal Chain -> Panner & Fader
   if (panNode) {
-    formantResonator.connect(panNode);
+    warmthWaveShaper.connect(panNode);
     panNode.connect(trackFader);
   } else {
-    formantResonator.connect(trackFader);
+    warmthWaveShaper.connect(trackFader);
   }
 
   // Fader -> Analyser & Sends & Master
@@ -173,12 +196,18 @@ export function createTrackDsp(
 
   // --- UPDATERS ---
   const updateVocalDsp = (config: VocalDspConfig) => {
-    // High-Pass
+    // Low-Cut / High-Pass Filter
+    const cutoff = config.lowCutFreq || config.highPassFreq || 80;
     if (config.highPassEnabled) {
-      highPassFilter.frequency.setValueAtTime(config.highPassFreq, ctx.currentTime);
+      highPassFilter.frequency.setValueAtTime(cutoff, ctx.currentTime);
       highPassFilter.type = 'highpass';
     } else {
       highPassFilter.frequency.setValueAtTime(10, ctx.currentTime);
+    }
+
+    // Warmth / Saturation
+    if (config.warmth !== undefined) {
+      warmthWaveShaper.curve = makeWarmthCurve(config.warmth / 100);
     }
 
     // Compressor
@@ -214,7 +243,8 @@ export function createTrackDsp(
     formantResonator.gain.setValueAtTime(config.formantWarmth * 4.5, ctx.currentTime);
 
     // Sends
-    reverbSendNode.gain.setValueAtTime(config.reverbSend, ctx.currentTime);
+    const wet = config.reverbWet !== undefined ? config.reverbWet : config.reverbSend;
+    reverbSendNode.gain.setValueAtTime(wet, ctx.currentTime);
     delaySendNode.gain.setValueAtTime(config.delaySend, ctx.currentTime);
   };
 

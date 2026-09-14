@@ -1,6 +1,6 @@
 import React from 'react';
 import { VocalDspConfig } from '../types/audio';
-import { Sliders, Activity, Mic, Sparkles, HelpCircle } from 'lucide-react';
+import { Sliders, Activity, Mic, Sparkles, Volume2, Music2 } from 'lucide-react';
 
 interface VocalDspRackProps {
   trackName: string;
@@ -9,6 +9,14 @@ interface VocalDspRackProps {
   onClose: () => void;
 }
 
+const KEYS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+const SCALES: { id: VocalDspConfig['pitchCorrectionScale']; label: string }[] = [
+  { id: 'chromatic', label: 'Chromatic' },
+  { id: 'major', label: 'Major (Natural)' },
+  { id: 'minor', label: 'Minor (Aeolian)' },
+  { id: 'pentatonic', label: 'Pentatonic' },
+];
+
 export const VocalDspRack: React.FC<VocalDspRackProps> = ({
   trackName,
   config,
@@ -16,7 +24,7 @@ export const VocalDspRack: React.FC<VocalDspRackProps> = ({
   onClose,
 }) => {
   return (
-    <div className="bg-neutral-900 border-t border-neutral-800 p-4 text-neutral-200 select-none overflow-y-auto max-h-80">
+    <div className="bg-neutral-900 border-t border-neutral-800 p-4 text-neutral-200 select-none overflow-y-auto max-h-96">
       {/* Rack Header */}
       <div className="flex items-center justify-between border-b border-neutral-800 pb-2 mb-3">
         <div className="flex items-center gap-2">
@@ -25,309 +33,352 @@ export const VocalDspRack: React.FC<VocalDspRackProps> = ({
           </div>
           <div>
             <h3 className="text-xs font-bold text-white tracking-wide uppercase flex items-center gap-2">
-              Vocal Chain DSP Rack
+              Vocal Effects Rack &amp; DSP Channel Strip
               <span className="text-neutral-400 font-normal lowercase">({trackName})</span>
             </h3>
             <p className="text-[10px] text-neutral-400">
-              Pro Studio Channel Strip: 80Hz Low-Cut • Compressor • 3-Band Parametric EQ • Formant Resonator • Space Sends
+              Auto-Tune &amp; Pitch Correction • Studio Convolver Reverb • Delay/Echo • Low-Cut EQ &amp; Saturation Warmth
             </p>
           </div>
         </div>
 
         <button
           onClick={onClose}
-          className="text-xs text-neutral-400 hover:text-white px-2 py-1 bg-neutral-800 rounded hover:bg-neutral-700"
+          className="text-xs text-neutral-400 hover:text-white px-2.5 py-1 bg-neutral-800 rounded hover:bg-neutral-700"
         >
           Close Rack
         </button>
       </div>
 
-      {/* 5 Modular Modules in Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-3 text-xs">
-        {/* Module 1: High-Pass Filter (Low-Cut at 80Hz) */}
+      {/* FX Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+        {/* Module 1: Pitch Correction / Auto-Tune */}
         <div className="bg-neutral-950 border border-neutral-800 rounded-lg p-3 flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between mb-2">
-              <span className="font-semibold text-rose-400 flex items-center gap-1 text-[11px]">
-                <Activity className="w-3 h-3" /> High-Pass (Low-Cut)
+              <span className="font-semibold text-emerald-400 flex items-center gap-1.5 text-[11px]">
+                <Sparkles className="w-3.5 h-3.5" /> Pitch Correction / Auto-Tune
+              </span>
+              <span className="text-[9px] bg-emerald-950 text-emerald-300 px-1.5 py-0.5 rounded border border-emerald-700/50 font-mono">
+                {config.pitchCorrection || 0}%
+              </span>
+            </div>
+            <p className="text-[10px] text-neutral-400 mb-2.5">
+              Real-time scale quantization &amp; pitch centering.
+            </p>
+          </div>
+
+          <div className="space-y-2.5">
+            {/* Intensity Slider */}
+            <div>
+              <div className="flex justify-between text-[10px] text-neutral-400 mb-1">
+                <span>Correction Intensity</span>
+                <span className="text-emerald-400 font-mono font-bold">
+                  {config.pitchCorrection || 0}%
+                </span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={1}
+                value={config.pitchCorrection || 0}
+                onChange={(e) => onChange({ pitchCorrection: Number(e.target.value) })}
+                className="w-full accent-emerald-500 h-1 bg-neutral-800 rounded cursor-pointer"
+              />
+              <div className="flex justify-between text-[8px] text-neutral-500 mt-0.5">
+                <span>Natural (0%)</span>
+                <span>Subtle</span>
+                <span>Hard Tune (100%)</span>
+              </div>
+            </div>
+
+            {/* Key & Scale Selectors */}
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <div>
+                <label className="block text-[9px] text-neutral-400 mb-1">Musical Key</label>
+                <select
+                  value={config.pitchCorrectionKey || 'C'}
+                  onChange={(e) => onChange({ pitchCorrectionKey: e.target.value })}
+                  className="w-full bg-neutral-900 border border-neutral-700 text-white rounded px-2 py-1 text-[10px] focus:outline-none focus:border-emerald-500"
+                >
+                  {KEYS.map((k) => (
+                    <option key={k} value={k}>
+                      {k}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[9px] text-neutral-400 mb-1">Target Scale</label>
+                <select
+                  value={config.pitchCorrectionScale || 'major'}
+                  onChange={(e) =>
+                    onChange({
+                      pitchCorrectionScale: e.target.value as VocalDspConfig['pitchCorrectionScale'],
+                    })
+                  }
+                  className="w-full bg-neutral-900 border border-neutral-700 text-white rounded px-2 py-1 text-[10px] focus:outline-none focus:border-emerald-500"
+                >
+                  {SCALES.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Pitch Shift Semitones */}
+            <div className="pt-1">
+              <div className="flex justify-between text-[10px] text-neutral-400 mb-0.5">
+                <span>Pitch Transpose</span>
+                <span className="text-emerald-400 font-mono">
+                  {config.pitchShift > 0 ? `+${config.pitchShift}` : config.pitchShift} st
+                </span>
+              </div>
+              <input
+                type="range"
+                min={-12}
+                max={12}
+                step={1}
+                value={config.pitchShift || 0}
+                onChange={(e) => onChange({ pitchShift: Number(e.target.value) })}
+                className="w-full accent-emerald-500 h-1 bg-neutral-800 rounded cursor-pointer"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Module 2: EQ & Saturation (Low-Cut & Warmth) */}
+        <div className="bg-neutral-950 border border-neutral-800 rounded-lg p-3 flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="font-semibold text-rose-400 flex items-center gap-1.5 text-[11px]">
+                <Activity className="w-3.5 h-3.5" /> EQ &amp; Saturation
               </span>
               <button
                 onClick={() => onChange({ highPassEnabled: !config.highPassEnabled })}
                 className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${
-                  config.highPassEnabled
+                  config.highPassEnabled !== false
                     ? 'bg-rose-600 text-white'
                     : 'bg-neutral-800 text-neutral-500'
                 }`}
               >
-                {config.highPassEnabled ? 'ON' : 'BYPASS'}
+                {config.highPassEnabled !== false ? 'FILTER ON' : 'BYPASS'}
               </button>
             </div>
             <p className="text-[10px] text-neutral-400 mb-2">
-              Cuts sub-bass rumble, mic handling, and vocal plosives.
+              Low-cut frequency filter and tube/tape warmth saturation.
             </p>
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-2.5">
+            {/* Low-Cut Filter Slider */}
             <div>
-              <div className="flex justify-between text-[10px] text-neutral-400">
-                <span>Cutoff Frequency</span>
-                <span className="text-rose-400 font-mono">{config.highPassFreq} Hz</span>
+              <div className="flex justify-between text-[10px] text-neutral-400 mb-0.5">
+                <span>Low-Cut Filter</span>
+                <span className="text-rose-400 font-mono font-bold">
+                  {config.lowCutFreq || config.highPassFreq || 80} Hz
+                </span>
               </div>
               <input
                 type="range"
-                min={40}
-                max={200}
+                min={20}
+                max={400}
                 step={5}
-                value={config.highPassFreq}
-                onChange={(e) => onChange({ highPassFreq: Number(e.target.value) })}
+                value={config.lowCutFreq || config.highPassFreq || 80}
+                onChange={(e) =>
+                  onChange({
+                    lowCutFreq: Number(e.target.value),
+                    highPassFreq: Number(e.target.value),
+                  })
+                }
                 className="w-full accent-rose-500 h-1 bg-neutral-800 rounded cursor-pointer"
               />
+              <div className="flex justify-between text-[8px] text-neutral-500 mt-0.5">
+                <span>20 Hz</span>
+                <span>80 Hz (Vocal standard)</span>
+                <span>400 Hz</span>
+              </div>
             </div>
-            <div className="flex justify-between text-[9px] text-neutral-400">
-              <span>Standard 80Hz Vocal Cut</span>
-              <button
-                onClick={() => onChange({ highPassFreq: 80, highPassEnabled: true })}
-                className="text-rose-400 hover:underline cursor-pointer"
-              >
-                Set 80Hz
-              </button>
-            </div>
-          </div>
-        </div>
 
-        {/* Module 2: Dynamic Range Compressor */}
-        <div className="bg-neutral-950 border border-neutral-800 rounded-lg p-3 flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="font-semibold text-amber-400 flex items-center gap-1 text-[11px]">
-                <Sliders className="w-3 h-3" /> Compressor
-              </span>
-              <button
-                onClick={() => onChange({ compressorEnabled: !config.compressorEnabled })}
-                className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${
-                  config.compressorEnabled
-                    ? 'bg-amber-600 text-white'
-                    : 'bg-neutral-800 text-neutral-500'
-                }`}
-              >
-                {config.compressorEnabled ? 'ACTIVE' : 'BYPASS'}
-              </button>
-            </div>
-            <p className="text-[10px] text-neutral-400 mb-2">
-              Glues dynamics and levels peaks for a polished vocal.
-            </p>
-          </div>
-
-          <div className="space-y-2">
+            {/* Warmth Saturation Knob */}
             <div>
-              <div className="flex justify-between text-[10px] text-neutral-400">
-                <span>Threshold</span>
-                <span className="text-amber-400 font-mono">{config.threshold} dB</span>
+              <div className="flex justify-between text-[10px] text-neutral-400 mb-0.5">
+                <span>Warmth (Tape/Tube Saturation)</span>
+                <span className="text-amber-400 font-mono font-bold">
+                  {config.warmth || 0}%
+                </span>
               </div>
               <input
                 type="range"
-                min={-40}
-                max={0}
+                min={0}
+                max={100}
                 step={1}
-                value={config.threshold}
-                onChange={(e) => onChange({ threshold: Number(e.target.value) })}
+                value={config.warmth || 0}
+                onChange={(e) => onChange({ warmth: Number(e.target.value) })}
                 className="w-full accent-amber-500 h-1 bg-neutral-800 rounded cursor-pointer"
               />
-            </div>
-
-            <div>
-              <div className="flex justify-between text-[10px] text-neutral-400">
-                <span>Ratio</span>
-                <span className="text-amber-400 font-mono">{config.ratio}:1</span>
+              <div className="flex justify-between text-[8px] text-neutral-500 mt-0.5">
+                <span>Clean</span>
+                <span>Harmonic Warmth</span>
+                <span>Driven</span>
               </div>
-              <input
-                type="range"
-                min={1.5}
-                max={8}
-                step={0.5}
-                value={config.ratio}
-                onChange={(e) => onChange({ ratio: Number(e.target.value) })}
-                className="w-full accent-amber-500 h-1 bg-neutral-800 rounded cursor-pointer"
-              />
             </div>
 
-            <div className="flex justify-between text-[9px] text-neutral-400">
-              <span>Attack: {Math.round(config.attack * 1000)}ms</span>
-              <span>Release: {Math.round(config.release * 1000)}ms</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Module 3: 3-Band Parametric EQ */}
-        <div className="bg-neutral-950 border border-neutral-800 rounded-lg p-3 flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="font-semibold text-cyan-400 flex items-center gap-1 text-[11px]">
-                <Activity className="w-3 h-3" /> Parametric EQ
-              </span>
-              <button
-                onClick={() => onChange({ eqEnabled: !config.eqEnabled })}
-                className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${
-                  config.eqEnabled
-                    ? 'bg-cyan-600 text-white'
-                    : 'bg-neutral-800 text-neutral-500'
-                }`}
-              >
-                {config.eqEnabled ? 'ON' : 'BYPASS'}
-              </button>
-            </div>
-            <p className="text-[10px] text-neutral-400 mb-2">
-              Warmth (Low), Presence (Mid), Air (High).
-            </p>
-          </div>
-
-          <div className="space-y-1.5">
-            <div>
-              <div className="flex justify-between text-[9px] text-neutral-400">
-                <span>Low Body (120Hz)</span>
-                <span className="text-cyan-400 font-mono">{config.lowGain > 0 ? `+${config.lowGain}` : config.lowGain}dB</span>
-              </div>
-              <input
-                type="range"
-                min={-10}
-                max={10}
-                step={0.5}
-                value={config.lowGain}
-                onChange={(e) => onChange({ lowGain: Number(e.target.value) })}
-                className="w-full accent-cyan-500 h-1 bg-neutral-800 rounded cursor-pointer"
-              />
-            </div>
-
-            <div>
-              <div className="flex justify-between text-[9px] text-neutral-400">
-                <span>Mid Clarity ({config.midFreq}Hz)</span>
-                <span className="text-cyan-400 font-mono">{config.midGain > 0 ? `+${config.midGain}` : config.midGain}dB</span>
-              </div>
-              <input
-                type="range"
-                min={-10}
-                max={10}
-                step={0.5}
-                value={config.midGain}
-                onChange={(e) => onChange({ midGain: Number(e.target.value) })}
-                className="w-full accent-cyan-500 h-1 bg-neutral-800 rounded cursor-pointer"
-              />
-            </div>
-
-            <div>
-              <div className="flex justify-between text-[9px] text-neutral-400">
-                <span>Vocal Air (9kHz)</span>
-                <span className="text-cyan-400 font-mono">{config.highGain > 0 ? `+${config.highGain}` : config.highGain}dB</span>
-              </div>
-              <input
-                type="range"
-                min={-10}
-                max={10}
-                step={0.5}
-                value={config.highGain}
-                onChange={(e) => onChange({ highGain: Number(e.target.value) })}
-                className="w-full accent-cyan-500 h-1 bg-neutral-800 rounded cursor-pointer"
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Module 4: Natural Formant & Pitch Control (Non-Robotic) */}
-        <div className="bg-neutral-950 border border-neutral-800 rounded-lg p-3 flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="font-semibold text-emerald-400 flex items-center gap-1 text-[11px]">
-                <Sparkles className="w-3 h-3" /> Formant & Pitch
-              </span>
-              <span className="text-[9px] bg-emerald-950 text-emerald-300 px-1 py-0.5 rounded border border-emerald-700/50">
-                Natural DSP
-              </span>
-            </div>
-            <p className="text-[10px] text-neutral-400 mb-2">
-              Non-robotic acoustic vocal tract shaping and micro-tuning.
-            </p>
-          </div>
-
-          <div className="space-y-2">
-            <div>
-              <div className="flex justify-between text-[10px] text-neutral-400">
-                <span>Formant Shift</span>
-                <span className="text-emerald-400 font-mono">
-                  {config.formantShift > 0 ? `+${config.formantShift}%` : `${config.formantShift}%`}
+            {/* 3-Band EQ Quick Gains */}
+            <div className="pt-1 grid grid-cols-3 gap-1.5 text-center">
+              <div className="bg-neutral-900 p-1 rounded border border-neutral-800">
+                <span className="text-[8px] text-neutral-400 block">Low 120Hz</span>
+                <span className="text-[10px] font-mono text-cyan-400">
+                  {config.lowGain > 0 ? `+${config.lowGain}` : config.lowGain}dB
                 </span>
               </div>
-              <input
-                type="range"
-                min={-50}
-                max={50}
-                step={2}
-                value={config.formantShift}
-                onChange={(e) => onChange({ formantShift: Number(e.target.value) })}
-                className="w-full accent-emerald-500 h-1 bg-neutral-800 rounded cursor-pointer"
-              />
-              <div className="flex justify-between text-[8px] text-neutral-400">
-                <span>Deeper/Chest</span>
-                <span>Brighter/Head</span>
+              <div className="bg-neutral-900 p-1 rounded border border-neutral-800">
+                <span className="text-[8px] text-neutral-400 block">Mid Pres.</span>
+                <span className="text-[10px] font-mono text-cyan-400">
+                  {config.midGain > 0 ? `+${config.midGain}` : config.midGain}dB
+                </span>
+              </div>
+              <div className="bg-neutral-900 p-1 rounded border border-neutral-800">
+                <span className="text-[8px] text-neutral-400 block">Air 9kHz</span>
+                <span className="text-[10px] font-mono text-cyan-400">
+                  {config.highGain > 0 ? `+${config.highGain}` : config.highGain}dB
+                </span>
               </div>
             </div>
+          </div>
+        </div>
 
+        {/* Module 3: Studio Reverb (Convolver Node) */}
+        <div className="bg-neutral-950 border border-neutral-800 rounded-lg p-3 flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="font-semibold text-indigo-400 flex items-center gap-1.5 text-[11px]">
+                <Volume2 className="w-3.5 h-3.5" /> Reverb (Convolver)
+              </span>
+              <span className="text-[9px] bg-indigo-950 text-indigo-300 px-1.5 py-0.5 rounded border border-indigo-700/50 font-mono">
+                {Math.round((config.reverbWet !== undefined ? config.reverbWet : config.reverbSend) * 100)}% WET
+              </span>
+            </div>
+            <p className="text-[10px] text-neutral-400 mb-2">
+              Stereo impulse response studio acoustic chamber.
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            {/* Reverb Wet/Dry Slider */}
             <div>
-              <div className="flex justify-between text-[10px] text-neutral-400">
-                <span>Vocal Warmth Resonance</span>
-                <span className="text-emerald-400 font-mono">
-                  {Math.round(config.formantWarmth * 100)}%
+              <div className="flex justify-between text-[10px] text-neutral-400 mb-1">
+                <span>Reverb Wet / Dry Mix</span>
+                <span className="text-indigo-400 font-mono font-bold">
+                  {Math.round((config.reverbWet !== undefined ? config.reverbWet : config.reverbSend) * 100)}%
                 </span>
               </div>
               <input
                 type="range"
                 min={0}
                 max={1}
-                step={0.05}
-                value={config.formantWarmth}
-                onChange={(e) => onChange({ formantWarmth: Number(e.target.value) })}
-                className="w-full accent-emerald-500 h-1 bg-neutral-800 rounded cursor-pointer"
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Module 5: Reverb & Delay Bus Sends ("In the Track" Space) */}
-        <div className="bg-neutral-950 border border-neutral-800 rounded-lg p-3 flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="font-semibold text-indigo-400 flex items-center gap-1 text-[11px]">
-                <Sliders className="w-3 h-3" /> Space Sends (In The Track)
-              </span>
-            </div>
-            <p className="text-[10px] text-neutral-400 mb-2">
-              Bends vocals into the acoustic mix environment.
-            </p>
-          </div>
-
-          <div className="space-y-2">
-            <div>
-              <div className="flex justify-between text-[10px] text-neutral-400">
-                <span>Studio Plate Reverb Send</span>
-                <span className="text-indigo-400 font-mono">
-                  {Math.round(config.reverbSend * 100)}%
-                </span>
-              </div>
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.02}
-                value={config.reverbSend}
-                onChange={(e) => onChange({ reverbSend: Number(e.target.value) })}
+                step={0.01}
+                value={config.reverbWet !== undefined ? config.reverbWet : config.reverbSend}
+                onChange={(e) => {
+                  const val = Number(e.target.value);
+                  onChange({ reverbWet: val, reverbSend: val });
+                }}
                 className="w-full accent-indigo-500 h-1 bg-neutral-800 rounded cursor-pointer"
               />
+              <div className="flex justify-between text-[8px] text-neutral-500 mt-0.5">
+                <span>Dry (0%)</span>
+                <span>Medium Room (30%)</span>
+                <span>Full Wet (100%)</span>
+              </div>
             </div>
 
+            <div className="bg-neutral-900 border border-neutral-800 rounded p-2 text-[9px] text-neutral-400 space-y-1">
+              <div className="flex justify-between">
+                <span>Impulse Response:</span>
+                <span className="text-neutral-300">Studio Room 2.2s Decay</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Pre-Delay:</span>
+                <span className="text-neutral-300">20 ms</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Space Routing:</span>
+                <span className="text-indigo-400">Offline + Live Convolver</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Module 4: Delay / Echo */}
+        <div className="bg-neutral-950 border border-neutral-800 rounded-lg p-3 flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="font-semibold text-cyan-400 flex items-center gap-1.5 text-[11px]">
+                <Sliders className="w-3.5 h-3.5" /> Delay / Echo
+              </span>
+              <span className="text-[9px] bg-cyan-950 text-cyan-300 px-1.5 py-0.5 rounded border border-cyan-700/50 font-mono">
+                {Math.round((config.delaySend || 0) * 100)}% SEND
+              </span>
+            </div>
+            <p className="text-[10px] text-neutral-400 mb-2">
+              Tempo-synced stereo echo with natural high-frequency damping.
+            </p>
+          </div>
+
+          <div className="space-y-2.5">
+            {/* Delay Time */}
             <div>
-              <div className="flex justify-between text-[10px] text-neutral-400">
-                <span>Echo / Delay Send</span>
-                <span className="text-indigo-400 font-mono">
-                  {Math.round(config.delaySend * 100)}%
+              <div className="flex justify-between text-[10px] text-neutral-400 mb-0.5">
+                <span>Delay Time</span>
+                <span className="text-cyan-400 font-mono font-bold">
+                  {Math.round((config.delayTime || 0.28) * 1000)} ms
+                </span>
+              </div>
+              <input
+                type="range"
+                min={0.05}
+                max={1.0}
+                step={0.01}
+                value={config.delayTime || 0.28}
+                onChange={(e) => onChange({ delayTime: Number(e.target.value) })}
+                className="w-full accent-cyan-500 h-1 bg-neutral-800 rounded cursor-pointer"
+              />
+              <div className="flex justify-between text-[8px] text-neutral-500 mt-0.5">
+                <span>50ms (Slapback)</span>
+                <span>280ms (1/4 Note)</span>
+                <span>1000ms</span>
+              </div>
+            </div>
+
+            {/* Delay Feedback */}
+            <div>
+              <div className="flex justify-between text-[10px] text-neutral-400 mb-0.5">
+                <span>Echo Feedback</span>
+                <span className="text-cyan-400 font-mono font-bold">
+                  {Math.round((config.delayFeedback || 0.35) * 100)}%
+                </span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={0.9}
+                step={0.02}
+                value={config.delayFeedback || 0.35}
+                onChange={(e) => onChange({ delayFeedback: Number(e.target.value) })}
+                className="w-full accent-cyan-500 h-1 bg-neutral-800 rounded cursor-pointer"
+              />
+            </div>
+
+            {/* Delay Send */}
+            <div>
+              <div className="flex justify-between text-[10px] text-neutral-400 mb-0.5">
+                <span>Echo Send Amount</span>
+                <span className="text-cyan-400 font-mono font-bold">
+                  {Math.round((config.delaySend || 0) * 100)}%
                 </span>
               </div>
               <input
@@ -335,15 +386,10 @@ export const VocalDspRack: React.FC<VocalDspRackProps> = ({
                 min={0}
                 max={1}
                 step={0.02}
-                value={config.delaySend}
+                value={config.delaySend || 0}
                 onChange={(e) => onChange({ delaySend: Number(e.target.value) })}
-                className="w-full accent-indigo-500 h-1 bg-neutral-800 rounded cursor-pointer"
+                className="w-full accent-cyan-500 h-1 bg-neutral-800 rounded cursor-pointer"
               />
-            </div>
-
-            <div className="flex justify-between text-[8px] text-neutral-400 pt-0.5">
-              <span>Time: ~280ms synced</span>
-              <span>Damping: 3.5kHz</span>
             </div>
           </div>
         </div>

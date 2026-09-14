@@ -9,6 +9,34 @@ interface ExportModalProps {
   onClose: () => void;
 }
 
+// Generate smooth saturation curve for offline rendering
+function makeOfflineWarmthCurve(amount = 0.3): Float32Array {
+  const k = amount * 15;
+  const n = 44100;
+  const curve = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const x = (i * 2) / n - 1;
+    if (k === 0) curve[i] = x;
+    else curve[i] = ((1 + k) * x) / (1 + k * Math.abs(x));
+  }
+  return curve;
+}
+
+// Generate realistic studio impulse response for offline reverb
+function createOfflineImpulseResponse(ctx: OfflineAudioContext, duration = 2.0, decay = 2.4): AudioBuffer {
+  const sampleRate = ctx.sampleRate;
+  const length = sampleRate * duration;
+  const impulse = ctx.createBuffer(2, length, sampleRate);
+  for (let c = 0; c < 2; c++) {
+    const data = impulse.getChannelData(c);
+    for (let i = 0; i < length; i++) {
+      const n = i / length;
+      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - n, decay);
+    }
+  }
+  return impulse;
+}
+
 export const ExportModal: React.FC<ExportModalProps> = ({
   tracks,
   masterVolume,
@@ -21,83 +49,202 @@ export const ExportModal: React.FC<ExportModalProps> = ({
 
   const handleStartExport = async () => {
     setIsExporting(true);
-    setProgressText('Preparing audio buffers...');
+    setProgressText('Preparing live mixdown graph...');
 
     try {
-      const activeTracks = tracks.filter((t) => t.audioBuffer && !t.muted);
+      const hasSolo = tracks.some((t) => t.solo);
+      const activeTracks = tracks.filter((t) => {
+        if (!t.audioBuffer) return false;
+        if (hasSolo) return t.solo;
+        return !t.muted;
+      });
+
       if (activeTracks.length === 0) {
-        alert('No tracks with audio to export!');
+        alert('No active tracks to export! Check mute/solo faders.');
         setIsExporting(false);
         return;
       }
 
-      // Calculate total duration
+      // Calculate total project duration
       const totalDuration = Math.max(
         ...activeTracks.map((t) => (t.startTime || 0) + (t.duration || t.audioBuffer!.duration))
       );
 
       const sampleRate = 44100;
-      const numSamples = Math.ceil(totalDuration * sampleRate);
+      // Add small 2.5s tail for reverb and delay rings
+      const exportDuration = totalDuration + 2.5;
+      const numSamples = Math.ceil(exportDuration * sampleRate);
 
       if (exportType === 'master') {
-        setProgressText('Rendering Master Mix with Vocal DSP & AI Cleaners...');
+        setProgressText('Setting up OfflineAudioContext DSP engine...');
         const offlineCtx = new OfflineAudioContext(2, numSamples, sampleRate);
 
-        // Master Gain
+        // Master Limiter / Output Gain
+        const masterLimiter = offlineCtx.createDynamicsCompressor();
+        masterLimiter.threshold.value = -0.5;
+        masterLimiter.knee.value = 0;
+        masterLimiter.ratio.value = 20;
+        masterLimiter.attack.value = 0.001;
+        masterLimiter.release.value = 0.05;
+
         const masterGain = offlineCtx.createGain();
         masterGain.gain.value = masterVolume;
-        masterGain.connect(offlineCtx.destination);
 
-        // Render each track
+        masterLimiter.connect(offlineCtx.destination);
+        masterGain.connect(masterLimiter);
+
+        // Master Studio Convolver Reverb Bus
+        const masterConvolver = offlineCtx.createConvolver();
+        masterConvolver.buffer = createOfflineImpulseResponse(offlineCtx, 2.2, 2.5);
+        const reverbReturnGain = offlineCtx.createGain();
+        reverbReturnGain.gain.value = 0.9;
+        masterConvolver.connect(reverbReturnGain);
+        reverbReturnGain.connect(masterGain);
+
+        // Master Stereo Delay Bus
+        const delayNode = offlineCtx.createDelay(2.0);
+        delayNode.delayTime.value = 0.28;
+        const delayFeedback = offlineCtx.createGain();
+        delayFeedback.gain.value = 0.35;
+        const delayFilter = offlineCtx.createBiquadFilter();
+        delayFilter.type = 'lowpass';
+        delayFilter.frequency.value = 3500;
+        const delayReturnGain = offlineCtx.createGain();
+        delayReturnGain.gain.value = 0.75;
+
+        delayNode.connect(delayFilter);
+        delayFilter.connect(delayFeedback);
+        delayFeedback.connect(delayNode);
+        delayFilter.connect(delayReturnGain);
+        delayReturnGain.connect(masterGain);
+
+        // Render each track through full DSP chain
+        setProgressText(`Processing ${activeTracks.length} tracks (EQ, Reverb, Pitch, Warmth)...`);
+
         for (const track of activeTracks) {
           if (!track.audioBuffer) continue;
           const src = offlineCtx.createBufferSource();
           src.buffer = track.audioBuffer;
 
-          // Track Gain & Pan
-          const trackGain = offlineCtx.createGain();
-          trackGain.gain.value = track.volume;
+          // Pitch Transpose (Semitones)
+          if (track.vocalDsp.pitchShift && track.vocalDsp.pitchShift !== 0) {
+            src.playbackRate.value = Math.pow(2, track.vocalDsp.pitchShift / 12);
+          }
 
-          // High-pass filter if enabled
           let lastNode: AudioNode = src;
-          if (track.vocalDsp.highPassEnabled) {
+
+          // 1. Low-Cut / High-Pass Filter
+          if (track.vocalDsp.highPassEnabled !== false) {
             const hp = offlineCtx.createBiquadFilter();
             hp.type = 'highpass';
-            hp.frequency.value = track.vocalDsp.highPassFreq;
+            hp.frequency.value = track.vocalDsp.lowCutFreq || track.vocalDsp.highPassFreq || 80;
             lastNode.connect(hp);
             lastNode = hp;
           }
 
-          // EQ if enabled
-          if (track.vocalDsp.eqEnabled) {
-            const mid = offlineCtx.createBiquadFilter();
-            mid.type = 'peaking';
-            mid.frequency.value = track.vocalDsp.midFreq;
-            mid.gain.value = track.vocalDsp.midGain;
-            lastNode.connect(mid);
-            lastNode = mid;
+          // 2. Dynamic Compressor
+          if (track.vocalDsp.compressorEnabled) {
+            const comp = offlineCtx.createDynamicsCompressor();
+            comp.threshold.value = track.vocalDsp.threshold;
+            comp.ratio.value = track.vocalDsp.ratio;
+            comp.attack.value = track.vocalDsp.attack;
+            comp.release.value = track.vocalDsp.release;
+            lastNode.connect(comp);
+            lastNode = comp;
           }
 
-          lastNode.connect(trackGain);
-          trackGain.connect(masterGain);
+          // 3. 3-Band Parametric EQ
+          if (track.vocalDsp.eqEnabled) {
+            const lowShelf = offlineCtx.createBiquadFilter();
+            lowShelf.type = 'lowshelf';
+            lowShelf.frequency.value = track.vocalDsp.lowFreq || 120;
+            lowShelf.gain.value = track.vocalDsp.lowGain || 0;
+            lastNode.connect(lowShelf);
+            lastNode = lowShelf;
 
+            const midPeak = offlineCtx.createBiquadFilter();
+            midPeak.type = 'peaking';
+            midPeak.frequency.value = track.vocalDsp.midFreq || 1500;
+            midPeak.Q.value = track.vocalDsp.midQ || 1.2;
+            midPeak.gain.value = track.vocalDsp.midGain || 0;
+            lastNode.connect(midPeak);
+            lastNode = midPeak;
+
+            const highShelf = offlineCtx.createBiquadFilter();
+            highShelf.type = 'highshelf';
+            highShelf.frequency.value = track.vocalDsp.highFreq || 9000;
+            highShelf.gain.value = track.vocalDsp.highGain || 0;
+            lastNode.connect(highShelf);
+            lastNode = highShelf;
+          }
+
+          // 4. Warmth Tape/Tube Saturation
+          const warmth = track.vocalDsp.warmth || 0;
+          if (warmth > 0) {
+            const warmthShaper = offlineCtx.createWaveShaper();
+            warmthShaper.curve = makeOfflineWarmthCurve(warmth / 100);
+            warmthShaper.oversample = '2x';
+            lastNode.connect(warmthShaper);
+            lastNode = warmthShaper;
+          }
+
+          // 5. Track Pan & Volume Fader
+          const trackFader = offlineCtx.createGain();
+          trackFader.gain.value = track.volume;
+
+          if (offlineCtx.createStereoPanner && track.pan !== 0) {
+            const panner = offlineCtx.createStereoPanner();
+            panner.pan.value = track.pan;
+            lastNode.connect(panner);
+            panner.connect(trackFader);
+          } else {
+            lastNode.connect(trackFader);
+          }
+
+          // 6. Space Sends (Convolver Reverb & Delay)
+          const reverbWet =
+            track.vocalDsp.reverbWet !== undefined
+              ? track.vocalDsp.reverbWet
+              : track.vocalDsp.reverbSend;
+          if (reverbWet > 0) {
+            const revSend = offlineCtx.createGain();
+            revSend.gain.value = reverbWet;
+            trackFader.connect(revSend);
+            revSend.connect(masterConvolver);
+          }
+
+          const delaySend = track.vocalDsp.delaySend || 0;
+          if (delaySend > 0) {
+            const delSend = offlineCtx.createGain();
+            delSend.gain.value = delaySend;
+            trackFader.connect(delSend);
+            delSend.connect(delayNode);
+          }
+
+          // Direct Track Path to Master Gain
+          trackFader.connect(masterGain);
+
+          // Start playback at timeline start time
           src.start(track.startTime || 0);
         }
 
+        setProgressText('Bouncing master audio via OfflineAudioContext...');
         const rendered = await offlineCtx.startRendering();
-        setProgressText('Encoding 16-bit 44.1kHz Stereo WAV...');
+        setProgressText('Encoding 16-bit 44.1kHz Stereo PCM WAV...');
         const wavBlob = audioBufferToWavBlob(rendered);
         const url = URL.createObjectURL(wavBlob);
-        setDownloadReady({ url, filename: `studio_mixdown_${Date.now()}.wav` });
+        setDownloadReady({ url, filename: `studio_master_${Date.now()}.wav` });
       } else {
-        // Individual stems
-        setProgressText('Exporting stems...');
-        // We'll export the first active track or allow download of individual stems
+        // Individual active stems
+        setProgressText('Rendering stems mixdown...');
         const track = activeTracks[0];
         const offlineCtx = new OfflineAudioContext(2, numSamples, sampleRate);
         const src = offlineCtx.createBufferSource();
         src.buffer = track.audioBuffer!;
-        src.connect(offlineCtx.destination);
+        const fader = offlineCtx.createGain();
+        fader.gain.value = track.volume;
+        src.connect(fader);
+        fader.connect(offlineCtx.destination);
         src.start(track.startTime || 0);
         const rendered = await offlineCtx.startRendering();
         const wavBlob = audioBufferToWavBlob(rendered);
