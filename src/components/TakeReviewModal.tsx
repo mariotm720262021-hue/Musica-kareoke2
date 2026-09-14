@@ -16,7 +16,7 @@ interface TakeReviewModalProps {
   take: RecordedTake;
   tracks: AudioTrack[];
   audioCtx: AudioContext;
-  onCommitTake: (targetTrackId: string, latencyOffsetMs: number) => void;
+  onCommitTake: (targetTrackId: string, latencyOffsetMs: number, asNewTrack?: boolean) => void;
   onReRecord: (targetTrackId: string) => void;
   onDiscard: () => void;
 }
@@ -29,6 +29,7 @@ export const TakeReviewModal: React.FC<TakeReviewModalProps> = ({
   onReRecord,
   onDiscard,
 }) => {
+  const [targetMode, setTargetMode] = useState<'new_track' | 'existing'>('new_track');
   const [selectedTrackId, setSelectedTrackId] = useState(take.trackId);
   const [latencyOffset, setLatencyOffset] = useState(take.latencyOffsetMs || 0);
   const [isPlayingSolo, setIsPlayingSolo] = useState(false);
@@ -247,25 +248,58 @@ export const TakeReviewModal: React.FC<TakeReviewModalProps> = ({
 
           {/* Target Track & Timing Calibration */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {/* Target Track Selector */}
+            {/* Destination Mode Selector */}
             <div className="bg-neutral-950 border border-neutral-800 p-3 rounded-lg">
               <label className="block text-[11px] font-semibold text-neutral-300 mb-1.5">
-                Target Track Destination
+                Destination (Keep Mode)
               </label>
-              <select
-                value={selectedTrackId}
-                onChange={(e) => setSelectedTrackId(e.target.value)}
-                className="w-full bg-neutral-900 border border-neutral-700 rounded-md px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-cyan-500"
-              >
-                {tracks.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name} ({t.type})
-                  </option>
-                ))}
-              </select>
-              <span className="text-[10px] text-neutral-500 mt-1 block">
-                Take will be committed to {targetTrack?.name || 'track'}.
-              </span>
+              <div className="grid grid-cols-2 gap-2 mb-2">
+                <button
+                  type="button"
+                  onClick={() => setTargetMode('new_track')}
+                  className={`px-2 py-1.5 rounded text-[11px] font-medium border text-center transition-all ${
+                    targetMode === 'new_track'
+                      ? 'bg-emerald-950 border-emerald-500 text-emerald-300 font-bold'
+                      : 'bg-neutral-900 border-neutral-800 text-neutral-400 hover:text-white'
+                  }`}
+                >
+                  + New Track Lane
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTargetMode('existing')}
+                  className={`px-2 py-1.5 rounded text-[11px] font-medium border text-center transition-all ${
+                    targetMode === 'existing'
+                      ? 'bg-emerald-950 border-emerald-500 text-emerald-300 font-bold'
+                      : 'bg-neutral-900 border-neutral-800 text-neutral-400 hover:text-white'
+                  }`}
+                >
+                  Replace in Track
+                </button>
+              </div>
+
+              {targetMode === 'existing' ? (
+                <div>
+                  <select
+                    value={selectedTrackId}
+                    onChange={(e) => setSelectedTrackId(e.target.value)}
+                    className="w-full bg-neutral-900 border border-neutral-700 rounded-md px-2.5 py-1 text-xs text-white focus:outline-none focus:border-cyan-500"
+                  >
+                    {tracks.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name} ({t.type})
+                      </option>
+                    ))}
+                  </select>
+                  <span className="text-[10px] text-neutral-500 mt-1 block">
+                    Will replace audio in {targetTrack?.name || 'track'}.
+                  </span>
+                </div>
+              ) : (
+                <div className="text-[10px] text-emerald-400/90 bg-emerald-950/40 p-2 rounded border border-emerald-800/40">
+                  Appends this take as a brand new vocal track lane below without overwriting previous vocals.
+                </div>
+              )}
             </div>
 
             {/* Latency Alignment / Nudge Offset */}
@@ -299,7 +333,7 @@ export const TakeReviewModal: React.FC<TakeReviewModalProps> = ({
           </div>
         </div>
 
-        {/* Modal Action Buttons */}
+        {/* Modal Action Buttons: Keep or Discard */}
         <div className="bg-neutral-950 px-5 py-3 border-t border-neutral-800 flex flex-wrap items-center justify-between gap-2">
           {/* Discard & Re-record */}
           <div className="flex items-center gap-2">
@@ -308,7 +342,7 @@ export const TakeReviewModal: React.FC<TakeReviewModalProps> = ({
                 stopAllAuditions();
                 onDiscard();
               }}
-              className="px-3 py-2 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-rose-400 text-xs font-medium flex items-center gap-1.5 transition-all"
+              className="px-3.5 py-2 rounded-lg bg-neutral-800 hover:bg-rose-950/40 border border-neutral-700 hover:border-rose-700 text-rose-400 text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer"
             >
               <Trash2 className="w-3.5 h-3.5" />
               <span>Discard Take</span>
@@ -322,20 +356,20 @@ export const TakeReviewModal: React.FC<TakeReviewModalProps> = ({
               className="px-3 py-2 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-amber-300 text-xs font-medium flex items-center gap-1.5 transition-all"
             >
               <RotateCcw className="w-3.5 h-3.5" />
-              <span>Re-Record Take</span>
+              <span>Re-Record</span>
             </button>
           </div>
 
-          {/* Commit Take */}
+          {/* Keep Take (Commit) */}
           <button
             onClick={() => {
               stopAllAuditions();
-              onCommitTake(selectedTrackId, latencyOffset);
+              onCommitTake(selectedTrackId, latencyOffset, targetMode === 'new_track');
             }}
-            className="px-4 py-2 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold flex items-center gap-2 shadow-lg shadow-emerald-950 transition-all active:scale-95"
+            className="px-5 py-2.5 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold flex items-center gap-2 shadow-lg shadow-emerald-950 transition-all active:scale-95 cursor-pointer"
           >
             <CheckCircle2 className="w-4 h-4" />
-            <span>Commit Take to Session</span>
+            <span>Keep Take (Save to Track)</span>
           </button>
         </div>
       </div>

@@ -644,28 +644,57 @@ export default function App() {
     }
   };
 
-  // "Don't save until OK": Commit take from review modal
-  const handleCommitTake = (targetTrackId: string, latencyOffsetMs: number) => {
+  // "Keep or Discard": Commit take from review modal
+  const handleCommitTake = (
+    targetTrackId: string,
+    latencyOffsetMs: number,
+    asNewTrack = true
+  ) => {
     if (!recordedTakeForReview) return;
 
     const takeBuffer = recordedTakeForReview.audioBuffer;
     const peaks = calculatePeaks(takeBuffer, 600);
     const finalStartTime = Math.max(0, recordedTakeForReview.startTime + latencyOffsetMs / 1000);
 
-    setTracks((prev) =>
-      prev.map((t) => {
-        if (t.id === targetTrackId) {
-          return {
-            ...t,
-            audioBuffer: takeBuffer,
-            peaks,
-            startTime: finalStartTime,
-            duration: takeBuffer.duration,
-          };
-        }
-        return t;
-      })
-    );
+    if (asNewTrack) {
+      // Append as brand new audio track lane below existing tracks (never overwriting)
+      const trackColors = ['#f43f5e', '#ec4899', '#8b5cf6', '#3b82f6', '#10b981', '#f59e0b'];
+      const newId = 'track_' + Date.now();
+      const newTrack: AudioTrack = {
+        id: newId,
+        name: `Vocal Overdub ${tracks.length + 1}`,
+        type: 'vocal',
+        color: trackColors[tracks.length % trackColors.length],
+        volume: 0.9,
+        pan: 0,
+        muted: false,
+        solo: false,
+        isArmed: false,
+        audioBuffer: takeBuffer,
+        peaks,
+        startTime: finalStartTime,
+        duration: takeBuffer.duration,
+        vocalDsp: { ...DEFAULT_VOCAL_DSP },
+        aiEnhancer: { ...DEFAULT_AI_ENHANCER },
+      };
+      setTracks((prev) => [...prev, newTrack]);
+      setSelectedTrackId(newId);
+    } else {
+      setTracks((prev) =>
+        prev.map((t) => {
+          if (t.id === targetTrackId) {
+            return {
+              ...t,
+              audioBuffer: takeBuffer,
+              peaks,
+              startTime: finalStartTime,
+              duration: takeBuffer.duration,
+            };
+          }
+          return t;
+        })
+      );
+    }
 
     setRecordedTakeForReview(null);
   };
