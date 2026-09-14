@@ -19,6 +19,7 @@ import {
   TrackDspNodes,
 } from './audio/dspChain';
 import { AudioRecorder } from './audio/audioRecorder';
+import { calculateAutoTuneShift } from './audio/autoTuneEngine';
 import { generateDemoStems } from './audio/synthesizerDemo';
 import { TransportBar } from './components/TransportBar';
 import { TrackHeader } from './components/TrackHeader';
@@ -317,6 +318,23 @@ export default function App() {
 
         const src = ctx.createBufferSource();
         src.buffer = track.audioBuffer;
+
+        // Auto-Tune & Pitch Shift: apply musical scale quantization and transpose
+        let totalSemitones = track.vocalDsp.pitchShift || 0;
+        if (track.vocalDsp.pitchCorrection > 0) {
+          const autoTuneOffset = calculateAutoTuneShift(
+            track.vocalDsp.pitchShift || 0,
+            track.vocalDsp.pitchCorrectionKey || 'C',
+            track.vocalDsp.pitchCorrectionScale || 'major',
+            track.vocalDsp.pitchCorrection
+          );
+          totalSemitones += autoTuneOffset;
+        }
+
+        if (totalSemitones !== 0) {
+          src.playbackRate.value = Math.pow(2, totalSemitones / 12);
+        }
+
         src.connect(dsp.inputNode);
 
         // Calculate offset into the audio buffer

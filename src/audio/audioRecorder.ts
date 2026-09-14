@@ -5,23 +5,27 @@ export interface RecorderCallbacks {
   onGateStatus?: (isOpen: boolean, currentLevel: number) => void;
 }
 
+/**
+ * Version 1 Clean Audio Recorder Architecture:
+ * - Direct clean getUserMedia microphone stream (with browser native echoCancellation & noiseSuppression if requested)
+ * - Clean Web Audio GainNode + AnalyserNode (zero experimental pitch shifters or heavy multi-filter feedback on the live mic feed)
+ * - Basic Noise Gate to silence room rumble, fan hiss, and background noise cleanly
+ * - Direct Float32 audio chunks buffer recording for pristine reproduction
+ */
 export class AudioRecorder {
   private mediaStream: MediaStream | null = null;
   private sourceNode: MediaStreamAudioSourceNode | null = null;
-  private bandpassHighpassNode: BiquadFilterNode | null = null;
-  private bandpassLowpassNode: BiquadFilterNode | null = null;
-  private processorNode: ScriptProcessorNode | null = null;
+  private inputGainNode: GainNode | null = null;
+  private highPassFilter: BiquadFilterNode | null = null;
   private analyserNode: AnalyserNode | null = null;
+  private processorNode: ScriptProcessorNode | null = null;
   private recordedChunks: Float32Array[] = [];
   private isRecording = false;
   private audioCtx: AudioContext;
   private animFrameId: number | null = null;
 
-  // Active Noise Gate parameters
-  public silenceThreshold = 0.018; // ~ -35dB silence threshold for room/fan/hiss
-  public gateAttack = 0.005; // 5ms attack
-  public gateRelease = 0.05; // 50ms release
-  public gateHold = 0.08; // 80ms hold
+  // Clean noise gate threshold (~ -42dB)
+  public silenceThreshold = 0.012;
 
   constructor(audioCtx: AudioContext) {
     this.audioCtx = audioCtx;
@@ -37,44 +41,42 @@ export class AudioRecorder {
         await this.audioCtx.resume();
       }
 
-      // Request studio quality raw mic input without browser voice processing
+      // Safe clean mic setup
       this.mediaStream = await navigator.mediaDevices.getUserMedia({
         audio: {
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
         },
       });
 
       this.sourceNode = this.audioCtx.createMediaStreamSource(this.mediaStream);
+
+      // Clean 80Hz High-Pass to cut microphone handling rumble
+      this.highPassFilter = this.audioCtx.createBiquadFilter();
+      this.highPassFilter.type = 'highpass';
+      this.highPassFilter.frequency.value = 80;
+      this.highPassFilter.Q.value = 0.707;
+
+      // Clean Input Gain
+      this.inputGainNode = this.audioCtx.createGain();
+      this.inputGainNode.gain.value = 1.0;
+
+      // Analyser for UI VU meters
       this.analyserNode = this.audioCtx.createAnalyser();
       this.analyserNode.fftSize = 256;
 
-      // 1. Real-time Bandpass Filter (85Hz High-pass to cut rumble + 12kHz Low-pass to cut hiss)
-      this.bandpassHighpassNode = this.audioCtx.createBiquadFilter();
-      this.bandpassHighpassNode.type = 'highpass';
-      this.bandpassHighpassNode.frequency.value = 85;
-      this.bandpassHighpassNode.Q.value = 0.707;
+      // Connect: mic -> 80Hz filter -> inputGain -> analyser
+      this.sourceNode.connect(this.highPassFilter);
+      this.highPassFilter.connect(this.inputGainNode);
+      this.inputGainNode.connect(this.analyserNode);
 
-      this.bandpassLowpassNode = this.audioCtx.createBiquadFilter();
-      this.bandpassLowpassNode.type = 'lowpass';
-      this.bandpassLowpassNode.frequency.value = 12000;
-      this.bandpassLowpassNode.Q.value = 0.707;
-
-      // Connect source -> Bandpass filter chain
-      this.sourceNode.connect(this.bandpassHighpassNode);
-      this.bandpassHighpassNode.connect(this.bandpassLowpassNode);
-      this.bandpassLowpassNode.connect(this.analyserNode);
-
-      // 4096 buffer size at 44.1kHz is ~92ms chunk
+      // Simple, fast buffer recorder with clean basic noise gate
       this.processorNode = this.audioCtx.createScriptProcessor(2048, 1, 1);
       this.recordedChunks = [];
       this.isRecording = true;
 
-      // Active Noise Gate state variables
       let gateEnvelope = 0.0;
-      let lastAboveThresholdTime = 0;
-      const sampleRate = this.audioCtx.sampleRate;
 
       this.processorNode.onaudioprocess = (e) => {
         if (!this.isRecording) return;
@@ -82,50 +84,39 @@ export class AudioRecorder {
         const length = inputData.length;
         const cleanOutput = new Float32Array(length);
 
-        // Compute short-term RMS to detect signal vs background noise (room noise, mic hiss, fan noise)
+        // Calculate simple RMS
         let sumSquares = 0;
         for (let i = 0; i < length; i++) {
           sumSquares += inputData[i] * inputData[i];
         }
         const rms = Math.sqrt(sumSquares / length);
-        const now = this.audioCtx.currentTime;
 
-        const isSignalPresent = rms >= this.silenceThreshold;
-        if (isSignalPresent) {
-          lastAboveThresholdTime = now;
-        }
+        const isOpen = rms >= this.silenceThreshold;
+        const targetGate = isOpen ? 1.0 : 0.0;
 
-        const isHolding = now - lastAboveThresholdTime < this.gateHold;
-        const targetGate = (isSignalPresent || isHolding) ? 1.0 : 0.0;
-
-        // Apply smooth envelope smoothing to avoid any clicks/pops
-        const attackCoeff = Math.exp(-1.0 / (sampleRate * this.gateAttack));
-        const releaseCoeff = Math.exp(-1.0 / (sampleRate * this.gateRelease));
+        // Smooth gate attack & release (no pop or click)
+        const coeff = targetGate > gateEnvelope ? 0.8 : 0.05;
+        gateEnvelope += (targetGate - gateEnvelope) * coeff;
 
         for (let i = 0; i < length; i++) {
-          const coeff = targetGate > gateEnvelope ? attackCoeff : releaseCoeff;
-          gateEnvelope = targetGate + coeff * (gateEnvelope - targetGate);
-
-          // If gate is closed (room noise/hiss/fan), force sample to 0.0 completely
-          if (gateEnvelope < 0.002) {
-            cleanOutput[i] = 0.0;
+          if (gateEnvelope < 0.01) {
+            cleanOutput[i] = 0;
           } else {
             cleanOutput[i] = inputData[i] * gateEnvelope;
           }
         }
 
-        // Clean vocal-only audio pushed to recording buffer
         this.recordedChunks.push(cleanOutput);
-        callbacks?.onGateStatus?.(targetGate > 0.1, rms);
+        callbacks?.onGateStatus?.(isOpen, rms);
       };
 
-      this.bandpassLowpassNode.connect(this.processorNode);
+      this.inputGainNode.connect(this.processorNode);
 
-      // Connect to dummy destination to keep processor flowing without feedback
-      const muteGain = this.audioCtx.createGain();
-      muteGain.gain.value = 0;
-      this.processorNode.connect(muteGain);
-      muteGain.connect(this.audioCtx.destination);
+      // Mute gain to destination so mic does NOT bleed/feedback through speakers/headphones
+      const muteSink = this.audioCtx.createGain();
+      muteSink.gain.value = 0;
+      this.processorNode.connect(muteSink);
+      muteSink.connect(this.audioCtx.destination);
 
       // Level meter loop
       if (callbacks?.onLevelUpdate && this.analyserNode) {
@@ -146,7 +137,7 @@ export class AudioRecorder {
 
       return true;
     } catch (err) {
-      console.error('Failed to start audio recording:', err);
+      console.error('Microphone stream error:', err);
       return false;
     }
   }
@@ -165,14 +156,14 @@ export class AudioRecorder {
       this.processorNode = null;
     }
 
-    if (this.bandpassLowpassNode) {
-      this.bandpassLowpassNode.disconnect();
-      this.bandpassLowpassNode = null;
+    if (this.inputGainNode) {
+      this.inputGainNode.disconnect();
+      this.inputGainNode = null;
     }
 
-    if (this.bandpassHighpassNode) {
-      this.bandpassHighpassNode.disconnect();
-      this.bandpassHighpassNode = null;
+    if (this.highPassFilter) {
+      this.highPassFilter.disconnect();
+      this.highPassFilter = null;
     }
 
     if (this.sourceNode) {
@@ -194,7 +185,7 @@ export class AudioRecorder {
       return null;
     }
 
-    // Merge Float32 chunks into a single AudioBuffer
+    // Merge recorded Float32 chunks into AudioBuffer
     const totalLength = this.recordedChunks.reduce((acc, chunk) => acc + chunk.length, 0);
     if (totalLength === 0) return null;
 
@@ -208,8 +199,6 @@ export class AudioRecorder {
     }
 
     const duration = mergedBuffer.duration;
-
-    // Apply latency compensation to timeline start
     const compensatedStartTime = Math.max(0, timelineStartTime + latencyOffsetMs / 1000);
 
     const take: RecordedTake = {

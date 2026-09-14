@@ -1,4 +1,5 @@
 import { VocalDspConfig, AiEnhancerConfig } from '../types/audio';
+import { calculateAutoTuneShift } from './autoTuneEngine';
 
 export interface TrackDspNodes {
   inputNode: GainNode;
@@ -59,27 +60,29 @@ export function createTrackDsp(
   delayBus: AudioNode,
   masterMixBus: AudioNode
 ): TrackDspNodes {
-  // Main Input
+  // Input gain node for the track
   const inputNode = ctx.createGain();
 
-  // --- AI AUDIO CLEANER & RESTORER SECTION ---
-  // 1. Noise Gate / Background Suppressor
-  const noiseGateGain = ctx.createGain();
+  // --- AI ENHANCEMENT SECTION (Optional pre-DSP restoration) ---
   const noiseGateFilter = ctx.createBiquadFilter();
   noiseGateFilter.type = 'highpass';
-  noiseGateFilter.frequency.value = 40;
+  noiseGateFilter.frequency.value = 20;
 
-  // 2. Harmonic Exciter & Resynthesis
+  const noiseGateGain = ctx.createGain();
+  noiseGateGain.gain.value = 1.0;
+
+  // Harmonic Exciter parallel chain
   const exciterSplit = ctx.createGain();
   const exciterHighpass = ctx.createBiquadFilter();
   exciterHighpass.type = 'highpass';
-  exciterHighpass.frequency.value = 3200; // Exciter acts on high-mids and presence
+  exciterHighpass.frequency.value = 3200;
   const exciterWaveShaper = ctx.createWaveShaper();
-  exciterWaveShaper.curve = makeExciterCurve(initialAiEnhancer.harmonicExciter / 100);
+  exciterWaveShaper.curve = makeExciterCurve(0.3);
   exciterWaveShaper.oversample = '2x';
   const exciterReturnGain = ctx.createGain();
+  exciterReturnGain.gain.value = 0.0;
 
-  // 3. Transient Shaper / Punch
+  // Transient Punch filter
   const transientFilter = ctx.createBiquadFilter();
   transientFilter.type = 'peaking';
   transientFilter.frequency.value = 4500;
@@ -88,13 +91,13 @@ export function createTrackDsp(
   const postAiSum = ctx.createGain();
 
   // --- VOCAL CHAIN DSP SECTION ---
-  // 1. High-Pass Filter (Low-cut at 80Hz default)
+  // 1. High-Pass Filter (Low-cut at 80Hz default to eliminate mic handling rumble)
   const highPassFilter = ctx.createBiquadFilter();
   highPassFilter.type = 'highpass';
   highPassFilter.frequency.value = initialVocalDsp.highPassFreq || 80;
   highPassFilter.Q.value = 0.707;
 
-  // 2. Dynamic Range Compressor
+  // 2. Standard Peak Compressor (smooths vocal cracks / volume spikes / "gallitos")
   const compressor = ctx.createDynamicsCompressor();
   compressor.threshold.value = initialVocalDsp.threshold;
   compressor.knee.value = 8;
@@ -196,9 +199,9 @@ export function createTrackDsp(
 
   // --- UPDATERS ---
   const updateVocalDsp = (config: VocalDspConfig) => {
-    // Low-Cut / High-Pass Filter
+    // Low-Cut / High-Pass Filter (80Hz default)
     const cutoff = config.lowCutFreq || config.highPassFreq || 80;
-    if (config.highPassEnabled) {
+    if (config.highPassEnabled !== false) {
       highPassFilter.frequency.setValueAtTime(cutoff, ctx.currentTime);
       highPassFilter.type = 'highpass';
     } else {
@@ -210,8 +213,8 @@ export function createTrackDsp(
       warmthWaveShaper.curve = makeWarmthCurve(config.warmth / 100);
     }
 
-    // Compressor
-    if (config.compressorEnabled) {
+    // Peak Compressor (levels volume spikes and vocal cracks)
+    if (config.compressorEnabled !== false) {
       compressor.threshold.setValueAtTime(config.threshold, ctx.currentTime);
       compressor.ratio.setValueAtTime(config.ratio, ctx.currentTime);
       compressor.attack.setValueAtTime(config.attack, ctx.currentTime);
@@ -258,20 +261,19 @@ export function createTrackDsp(
       return;
     }
 
-    // AI Noise Gate & Suppression
-    // Threshold calculation
-    const gateCutoff = Math.max(20, 20 + (config.noiseReduction / 100) * 80);
-    noiseGateFilter.frequency.setValueAtTime(gateCutoff, ctx.currentTime);
-    noiseGateGain.gain.setValueAtTime(1.0, ctx.currentTime);
+    // Noise gate threshold
+    const gateGain = config.noiseReduction > 0 ? 1.0 - (config.noiseReduction / 100) * 0.6 : 1.0;
+    noiseGateGain.gain.setValueAtTime(gateGain, ctx.currentTime);
+    noiseGateFilter.frequency.setValueAtTime(50 + (config.spectralClarity / 100) * 80, ctx.currentTime);
 
-    // AI Harmonic Exciter: Non-linear overtones
-    const exciterAmount = (config.harmonicExciter / 100) * 0.45;
-    exciterWaveShaper.curve = makeExciterCurve(config.harmonicExciter / 100);
+    // Harmonic Exciter drive
+    const exciterAmount = (config.harmonicExciter / 100) * 0.35;
     exciterReturnGain.gain.setValueAtTime(exciterAmount, ctx.currentTime);
+    exciterWaveShaper.curve = makeExciterCurve(config.harmonicExciter / 100);
 
-    // Transient Shaper & Clarity
-    const transientGain = (config.transientPunch / 100) * 4.5;
-    transientFilter.gain.setValueAtTime(transientGain, ctx.currentTime);
+    // Transient Punch boost
+    const punchGain = (config.transientPunch / 100) * 4.5;
+    transientFilter.gain.setValueAtTime(punchGain, ctx.currentTime);
   };
 
   const updateVolumeAndPan = (volume: number, pan: number, muted: boolean) => {
@@ -314,114 +316,111 @@ export function createTrackDsp(
 // Master bus containing Master Limiter, Stereo Reverb Convolver, Stereo Delay
 export interface MasterBusSystem {
   masterInput: GainNode;
+  masterLimiter: DynamicsCompressorNode;
+  masterAnalyser: AnalyserNode;
   reverbInput: GainNode;
   delayInput: GainNode;
-  masterFader: GainNode;
-  masterAnalyser: AnalyserNode;
-  setMasterVolume: (val: number) => void;
-  setDelayParams: (time: number, feedback: number) => void;
+  setMasterVolume: (vol: number) => void;
+  setReverbDecay: (seconds: number) => void;
+  setDelayFeedback: (feedback: number) => void;
+  setDelayTime: (seconds: number) => void;
 }
 
 export function createMasterBus(ctx: AudioContext): MasterBusSystem {
   const masterInput = ctx.createGain();
-  const masterFader = ctx.createGain();
-  masterFader.gain.value = 0.9;
+  masterInput.gain.value = 0.9;
 
-  // Master Limiter / Output Stage Compressor to prevent digital clipping
-  const limiter = ctx.createDynamicsCompressor();
-  limiter.threshold.value = -0.5;
-  limiter.knee.value = 0;
-  limiter.ratio.value = 20;
-  limiter.attack.value = 0.002;
-  limiter.release.value = 0.05;
+  // Master Brickwall Limiter (transparent peak protection)
+  const masterLimiter = ctx.createDynamicsCompressor();
+  masterLimiter.threshold.value = -0.5;
+  masterLimiter.knee.value = 0;
+  masterLimiter.ratio.value = 20;
+  masterLimiter.attack.value = 0.001;
+  masterLimiter.release.value = 0.05;
 
   const masterAnalyser = ctx.createAnalyser();
-  masterAnalyser.fftSize = 512;
-  masterAnalyser.smoothingTimeConstant = 0.85;
+  masterAnalyser.fftSize = 256;
+  masterAnalyser.smoothingTimeConstant = 0.8;
 
-  // --- REVERB BUS (Convolver) ---
+  // Connect Master: masterInput -> masterLimiter -> masterAnalyser -> destination
+  masterInput.connect(masterLimiter);
+  masterLimiter.connect(masterAnalyser);
+  masterAnalyser.connect(ctx.destination);
+
+  // --- STUDIO STEREO CONVOLVER REVERB BUS ---
   const reverbInput = ctx.createGain();
+  reverbInput.gain.value = 1.0;
+
   const convolver = ctx.createConvolver();
-  // Impulse response generated via createStudioImpulseResponse
-  try {
-    const impulse = createStudioImpulseResponse(ctx, 2.0, 2.2, 0.02);
-    convolver.buffer = impulse;
-  } catch {
-    // fallback if context not ready
-  }
-  const reverbWetGain = ctx.createGain();
-  reverbWetGain.gain.value = 0.8;
+  // Generate studio reverb impulse response
+  const generateImpulse = (duration = 2.0, decay = 2.5) => {
+    const rate = ctx.sampleRate;
+    const length = rate * duration;
+    const impulse = ctx.createBuffer(2, length, rate);
+    for (let c = 0; c < 2; c++) {
+      const channel = impulse.getChannelData(c);
+      for (let i = 0; i < length; i++) {
+        const n = i / length;
+        channel[i] = (Math.random() * 2 - 1) * Math.pow(1 - n, decay);
+      }
+    }
+    return impulse;
+  };
+  convolver.buffer = generateImpulse(2.2, 2.8);
+
+  const reverbDamping = ctx.createBiquadFilter();
+  reverbDamping.type = 'lowpass';
+  reverbDamping.frequency.value = 6500;
+
+  const reverbReturn = ctx.createGain();
+  reverbReturn.gain.value = 0.85;
 
   reverbInput.connect(convolver);
-  convolver.connect(reverbWetGain);
-  reverbWetGain.connect(masterInput);
+  convolver.connect(reverbDamping);
+  reverbDamping.connect(reverbReturn);
+  reverbReturn.connect(masterInput);
 
-  // --- DELAY BUS (Feedback delay with damping) ---
+  // --- STEREO TAPE DELAY BUS ---
   const delayInput = ctx.createGain();
-  const delayNode = ctx.createDelay(2.0);
-  delayNode.delayTime.value = 0.28; // ~quarter note around 100bpm
+  delayInput.gain.value = 1.0;
+
+  const delayNode = ctx.createDelay(3.0);
+  delayNode.delayTime.value = 0.28; // ~eighth-note delay
+
   const delayFeedback = ctx.createGain();
   delayFeedback.gain.value = 0.35;
-  const delayDampFilter = ctx.createBiquadFilter();
-  delayDampFilter.type = 'lowpass';
-  delayDampFilter.frequency.value = 3500; // natural high damping
+
+  const delayFilter = ctx.createBiquadFilter();
+  delayFilter.type = 'lowpass';
+  delayFilter.frequency.value = 3500; // Warm analog tape roll-off
+
+  const delayReturn = ctx.createGain();
+  delayReturn.gain.value = 0.75;
 
   delayInput.connect(delayNode);
-  delayNode.connect(delayDampFilter);
-  delayDampFilter.connect(delayFeedback);
+  delayNode.connect(delayFilter);
+  delayFilter.connect(delayFeedback);
   delayFeedback.connect(delayNode);
-
-  const delayWetGain = ctx.createGain();
-  delayWetGain.gain.value = 0.65;
-  delayDampFilter.connect(delayWetGain);
-  delayWetGain.connect(masterInput);
-
-  // Master route
-  masterInput.connect(masterFader);
-  masterFader.connect(limiter);
-  limiter.connect(masterAnalyser);
-  masterAnalyser.connect(ctx.destination);
+  delayFilter.connect(delayReturn);
+  delayReturn.connect(masterInput);
 
   return {
     masterInput,
+    masterLimiter,
+    masterAnalyser,
     reverbInput,
     delayInput,
-    masterFader,
-    masterAnalyser,
-    setMasterVolume: (val: number) => {
-      masterFader.gain.setValueAtTime(val, ctx.currentTime);
+    setMasterVolume: (vol: number) => {
+      masterInput.gain.setValueAtTime(Math.max(0, Math.min(1.5, vol)), ctx.currentTime);
     },
-    setDelayParams: (time: number, feedback: number) => {
-      delayNode.delayTime.setValueAtTime(time, ctx.currentTime);
-      delayFeedback.gain.setValueAtTime(feedback, ctx.currentTime);
+    setReverbDecay: (seconds: number) => {
+      convolver.buffer = generateImpulse(seconds, 2.5);
+    },
+    setDelayFeedback: (feedback: number) => {
+      delayFeedback.gain.setValueAtTime(Math.max(0, Math.min(0.9, feedback)), ctx.currentTime);
+    },
+    setDelayTime: (seconds: number) => {
+      delayNode.delayTime.setValueAtTime(Math.max(0.01, Math.min(2.0, seconds)), ctx.currentTime);
     },
   };
-}
-
-// Helper to generate impulse response if needed
-function createStudioImpulseResponse(
-  ctx: AudioContext,
-  duration = 2.0,
-  decay = 2.0,
-  preDelay = 0.02
-): AudioBuffer {
-  const sampleRate = ctx.sampleRate;
-  const length = Math.floor(sampleRate * duration);
-  const impulse = ctx.createBuffer(2, length, sampleRate);
-  const left = impulse.getChannelData(0);
-  const right = impulse.getChannelData(1);
-  const preDelaySamples = Math.floor(sampleRate * preDelay);
-
-  for (let i = 0; i < length; i++) {
-    if (i < preDelaySamples) {
-      left[i] = 0;
-      right[i] = 0;
-      continue;
-    }
-    const t = (i - preDelaySamples) / (length - preDelaySamples);
-    const envelope = Math.exp(-t * decay);
-    left[i] = (Math.random() * 2 - 1) * envelope;
-    right[i] = (Math.random() * 2 - 1) * envelope;
-  }
-  return impulse;
 }
