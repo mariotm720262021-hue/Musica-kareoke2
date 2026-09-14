@@ -1,6 +1,23 @@
 import React from 'react';
 import { VocalDspConfig } from '../types/audio';
-import { Sliders, Activity, Mic, Sparkles, Volume2, Music2 } from 'lucide-react';
+import {
+  Sliders,
+  Activity,
+  Mic,
+  Sparkles,
+  Volume2,
+  Music2,
+  ShieldAlert,
+  Zap,
+  Check,
+} from 'lucide-react';
+import {
+  KEYS,
+  SCALES,
+  AUTO_TUNE_PRESETS,
+  COMPRESSOR_PRESETS,
+  getScaleNoteNames,
+} from '../audio/autoTuneEngine';
 
 interface VocalDspRackProps {
   trackName: string;
@@ -9,12 +26,11 @@ interface VocalDspRackProps {
   onClose: () => void;
 }
 
-const KEYS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-const SCALES: { id: VocalDspConfig['pitchCorrectionScale']; label: string }[] = [
-  { id: 'chromatic', label: 'Chromatic' },
-  { id: 'major', label: 'Major (Natural)' },
-  { id: 'minor', label: 'Minor (Aeolian)' },
-  { id: 'pentatonic', label: 'Pentatonic' },
+const SCALE_OPTIONS: { id: VocalDspConfig['pitchCorrectionScale']; label: string }[] = [
+  { id: 'chromatic', label: 'Cromática (Chromatic)' },
+  { id: 'major', label: 'Mayor (Major Natural)' },
+  { id: 'minor', label: 'Menor (Minor Aeolian)' },
+  { id: 'pentatonic', label: 'Pentatónica (Pentatonic)' },
 ];
 
 export const VocalDspRack: React.FC<VocalDspRackProps> = ({
@@ -23,56 +39,88 @@ export const VocalDspRack: React.FC<VocalDspRackProps> = ({
   onChange,
   onClose,
 }) => {
+  const activeNotes = getScaleNoteNames(
+    config.pitchCorrectionKey || 'C',
+    config.pitchCorrectionScale || 'major'
+  );
+
   return (
-    <div className="bg-neutral-900 border-t border-neutral-800 p-4 text-neutral-200 select-none overflow-y-auto max-h-96">
+    <div className="bg-neutral-900 border-t border-neutral-800 p-4 text-neutral-200 select-none overflow-y-auto max-h-96 shadow-2xl">
       {/* Rack Header */}
-      <div className="flex items-center justify-between border-b border-neutral-800 pb-2 mb-3">
+      <div className="flex items-center justify-between border-b border-neutral-800 pb-2.5 mb-3">
         <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded bg-rose-600/20 border border-rose-500/50 flex items-center justify-center text-rose-400">
-            <Mic className="w-3.5 h-3.5" />
+          <div className="w-7 h-7 rounded bg-rose-600/20 border border-rose-500/50 flex items-center justify-center text-rose-400">
+            <Mic className="w-4 h-4" />
           </div>
           <div>
             <h3 className="text-xs font-bold text-white tracking-wide uppercase flex items-center gap-2">
-              Vocal Effects Rack &amp; DSP Channel Strip
+              Vocal Studio Rack &amp; DSP Strip
               <span className="text-neutral-400 font-normal lowercase">({trackName})</span>
             </h3>
             <p className="text-[10px] text-neutral-400">
-              Auto-Tune &amp; Pitch Correction • Studio Convolver Reverb • Delay/Echo • Low-Cut EQ &amp; Saturation Warmth
+              Auto-Tune Pitch Engine • Compresor Anti-Gallitos (Vocal Cracks) • Filtro 80Hz • Reverb de Estudio &amp; Delay
             </p>
           </div>
         </div>
 
         <button
           onClick={onClose}
-          className="text-xs text-neutral-400 hover:text-white px-2.5 py-1 bg-neutral-800 rounded hover:bg-neutral-700"
+          className="text-xs text-neutral-400 hover:text-white px-2.5 py-1 bg-neutral-800 rounded hover:bg-neutral-700 cursor-pointer"
         >
-          Close Rack
+          Cerrar Rack
         </button>
       </div>
 
-      {/* FX Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+      {/* FX Grid - 4 Columns */}
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 text-xs">
         {/* Module 1: Pitch Correction / Auto-Tune */}
         <div className="bg-neutral-950 border border-neutral-800 rounded-lg p-3 flex flex-col justify-between">
           <div>
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center justify-between mb-1.5">
               <span className="font-semibold text-emerald-400 flex items-center gap-1.5 text-[11px]">
-                <Sparkles className="w-3.5 h-3.5" /> Pitch Correction / Auto-Tune
+                <Sparkles className="w-3.5 h-3.5" /> Auto-Tune (Pitch Correction)
               </span>
-              <span className="text-[9px] bg-emerald-950 text-emerald-300 px-1.5 py-0.5 rounded border border-emerald-700/50 font-mono">
+              <span className="text-[9px] bg-emerald-950 text-emerald-300 px-1.5 py-0.5 rounded border border-emerald-700/50 font-mono font-bold">
                 {config.pitchCorrection || 0}%
               </span>
             </div>
-            <p className="text-[10px] text-neutral-400 mb-2.5">
-              Real-time scale quantization &amp; pitch centering.
+            <p className="text-[10px] text-neutral-400 mb-2">
+              Afinación tonal a escala musical y corrección armónica en tiempo real.
             </p>
+
+            {/* Quick Auto-Tune Presets */}
+            <div className="grid grid-cols-2 gap-1 mb-2.5">
+              {AUTO_TUNE_PRESETS.map((preset) => {
+                const isActive = (config.pitchCorrection || 0) === preset.intensity;
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    onClick={() =>
+                      onChange({
+                        pitchCorrection: preset.intensity,
+                        pitchCorrectionScale: preset.scale,
+                      })
+                    }
+                    className={`px-1.5 py-1 rounded text-[9px] font-medium border text-left truncate transition-colors cursor-pointer ${
+                      isActive
+                        ? 'bg-emerald-950 border-emerald-500 text-emerald-300'
+                        : 'bg-neutral-900 border-neutral-800 text-neutral-400 hover:text-neutral-200'
+                    }`}
+                    title={preset.description}
+                  >
+                    {preset.name.split(' ')[0]} {preset.name.split(' ')[1] || ''}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           <div className="space-y-2.5">
             {/* Intensity Slider */}
             <div>
               <div className="flex justify-between text-[10px] text-neutral-400 mb-1">
-                <span>Correction Intensity</span>
+                <span>Intensidad de Auto-Tune</span>
                 <span className="text-emerald-400 font-mono font-bold">
                   {config.pitchCorrection || 0}%
                 </span>
@@ -87,22 +135,22 @@ export const VocalDspRack: React.FC<VocalDspRackProps> = ({
                 className="w-full accent-emerald-500 h-1 bg-neutral-800 rounded cursor-pointer"
               />
               <div className="flex justify-between text-[8px] text-neutral-500 mt-0.5">
-                <span>Natural (0%)</span>
-                <span>Subtle</span>
-                <span>Hard Tune (100%)</span>
+                <span>0% (Natural)</span>
+                <span>50% (Pop)</span>
+                <span>100% (Hard Tune)</span>
               </div>
             </div>
 
             {/* Key & Scale Selectors */}
-            <div className="grid grid-cols-2 gap-2 pt-1">
+            <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="block text-[9px] text-neutral-400 mb-1">Musical Key</label>
+                <label className="block text-[9px] text-neutral-400 mb-1">Tono (Key)</label>
                 <select
                   value={config.pitchCorrectionKey || 'C'}
                   onChange={(e) => onChange({ pitchCorrectionKey: e.target.value })}
                   className="w-full bg-neutral-900 border border-neutral-700 text-white rounded px-2 py-1 text-[10px] focus:outline-none focus:border-emerald-500"
                 >
-                  {KEYS.map((k) => (
+                  {['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'].map((k) => (
                     <option key={k} value={k}>
                       {k}
                     </option>
@@ -111,7 +159,7 @@ export const VocalDspRack: React.FC<VocalDspRackProps> = ({
               </div>
 
               <div>
-                <label className="block text-[9px] text-neutral-400 mb-1">Target Scale</label>
+                <label className="block text-[9px] text-neutral-400 mb-1">Escala (Scale)</label>
                 <select
                   value={config.pitchCorrectionScale || 'major'}
                   onChange={(e) =>
@@ -121,7 +169,7 @@ export const VocalDspRack: React.FC<VocalDspRackProps> = ({
                   }
                   className="w-full bg-neutral-900 border border-neutral-700 text-white rounded px-2 py-1 text-[10px] focus:outline-none focus:border-emerald-500"
                 >
-                  {SCALES.map((s) => (
+                  {SCALE_OPTIONS.map((s) => (
                     <option key={s.id} value={s.id}>
                       {s.label}
                     </option>
@@ -130,10 +178,25 @@ export const VocalDspRack: React.FC<VocalDspRackProps> = ({
               </div>
             </div>
 
-            {/* Pitch Shift Semitones */}
-            <div className="pt-1">
+            {/* Active Scale Notes preview */}
+            <div className="bg-neutral-900/90 border border-neutral-800 rounded p-1.5">
+              <span className="text-[8px] text-neutral-400 block mb-1">Notas Permitidas:</span>
+              <div className="flex flex-wrap gap-1">
+                {activeNotes.map((note) => (
+                  <span
+                    key={note}
+                    className="text-[8px] bg-emerald-950/70 border border-emerald-700/60 text-emerald-300 px-1 py-0.2 rounded font-mono font-bold"
+                  >
+                    {note}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            {/* Pitch Transpose Semitones */}
+            <div>
               <div className="flex justify-between text-[10px] text-neutral-400 mb-0.5">
-                <span>Pitch Transpose</span>
+                <span>Transposición (Pitch Shift)</span>
                 <span className="text-emerald-400 font-mono">
                   {config.pitchShift > 0 ? `+${config.pitchShift}` : config.pitchShift} st
                 </span>
@@ -151,26 +214,144 @@ export const VocalDspRack: React.FC<VocalDspRackProps> = ({
           </div>
         </div>
 
-        {/* Module 2: EQ & Saturation (Low-Cut & Warmth) */}
+        {/* Module 2: Anti-Gallitos & Peak Vocal Compressor */}
         <div className="bg-neutral-950 border border-neutral-800 rounded-lg p-3 flex flex-col justify-between">
           <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="font-semibold text-rose-400 flex items-center gap-1.5 text-[11px]">
-                <Activity className="w-3.5 h-3.5" /> EQ &amp; Saturation
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="font-semibold text-amber-400 flex items-center gap-1.5 text-[11px]">
+                <ShieldAlert className="w-3.5 h-3.5" /> Compresor Anti-Gallitos
               </span>
               <button
+                type="button"
+                onClick={() => onChange({ compressorEnabled: !config.compressorEnabled })}
+                className={`text-[9px] px-1.5 py-0.5 rounded font-bold cursor-pointer ${
+                  config.compressorEnabled !== false
+                    ? 'bg-amber-600 text-black'
+                    : 'bg-neutral-800 text-neutral-500'
+                }`}
+              >
+                {config.compressorEnabled !== false ? 'COMP ON' : 'BYPASS'}
+              </button>
+            </div>
+            <p className="text-[10px] text-neutral-400 mb-2">
+              Nivelador de dinámica: aplana picos repentinos y quiebres de voz involuntarios.
+            </p>
+
+            {/* Compressor Presets */}
+            <div className="grid grid-cols-2 gap-1 mb-2.5">
+              {COMPRESSOR_PRESETS.map((p) => {
+                const isActive =
+                  config.threshold === p.threshold && config.ratio === p.ratio;
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() =>
+                      onChange({
+                        compressorEnabled: true,
+                        threshold: p.threshold,
+                        ratio: p.ratio,
+                        attack: p.attack,
+                        release: p.release,
+                      })
+                    }
+                    className={`px-1.5 py-1 rounded text-[9px] font-medium border text-left truncate transition-colors cursor-pointer ${
+                      isActive
+                        ? 'bg-amber-950 border-amber-500 text-amber-300'
+                        : 'bg-neutral-900 border-neutral-800 text-neutral-400 hover:text-neutral-200'
+                    }`}
+                    title={p.description}
+                  >
+                    {p.name.split(' ')[0]} {p.name.split(' ')[1] || ''}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="space-y-2.5">
+            {/* Threshold Slider */}
+            <div>
+              <div className="flex justify-between text-[10px] text-neutral-400 mb-0.5">
+                <span>Umbral (Threshold)</span>
+                <span className="text-amber-400 font-mono font-bold">
+                  {config.threshold || -22} dB
+                </span>
+              </div>
+              <input
+                type="range"
+                min={-50}
+                max={-6}
+                step={1}
+                value={config.threshold || -22}
+                onChange={(e) => onChange({ threshold: Number(e.target.value) })}
+                className="w-full accent-amber-500 h-1 bg-neutral-800 rounded cursor-pointer"
+              />
+              <div className="flex justify-between text-[8px] text-neutral-500 mt-0.5">
+                <span>-50 dB (Fuerte)</span>
+                <span>-24 dB (Anti-Gallitos)</span>
+                <span>-6 dB (Leve)</span>
+              </div>
+            </div>
+
+            {/* Ratio Slider */}
+            <div>
+              <div className="flex justify-between text-[10px] text-neutral-400 mb-0.5">
+                <span>Proporción (Ratio)</span>
+                <span className="text-amber-400 font-mono font-bold">
+                  {(config.ratio || 3.5).toFixed(1)}:1
+                </span>
+              </div>
+              <input
+                type="range"
+                min={1.5}
+                max={12}
+                step={0.5}
+                value={config.ratio || 3.5}
+                onChange={(e) => onChange({ ratio: Number(e.target.value) })}
+                className="w-full accent-amber-500 h-1 bg-neutral-800 rounded cursor-pointer"
+              />
+            </div>
+
+            {/* Attack & Release */}
+            <div className="grid grid-cols-2 gap-2 text-[9px] text-neutral-400">
+              <div className="bg-neutral-900 p-1.5 rounded border border-neutral-800">
+                <span className="block text-[8px]">Ataque Rápido</span>
+                <span className="text-amber-300 font-mono font-bold">
+                  {Math.round((config.attack || 0.015) * 1000)} ms
+                </span>
+              </div>
+              <div className="bg-neutral-900 p-1.5 rounded border border-neutral-800">
+                <span className="block text-[8px]">Recuperación</span>
+                <span className="text-amber-300 font-mono font-bold">
+                  {Math.round((config.release || 0.2) * 1000)} ms
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Module 3: 80Hz Low-Cut Filter & Warmth Saturation */}
+        <div className="bg-neutral-950 border border-neutral-800 rounded-lg p-3 flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="font-semibold text-rose-400 flex items-center gap-1.5 text-[11px]">
+                <Activity className="w-3.5 h-3.5" /> Filtro 80Hz &amp; Saturation
+              </span>
+              <button
+                type="button"
                 onClick={() => onChange({ highPassEnabled: !config.highPassEnabled })}
-                className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${
+                className={`text-[9px] px-1.5 py-0.5 rounded font-bold cursor-pointer ${
                   config.highPassEnabled !== false
                     ? 'bg-rose-600 text-white'
                     : 'bg-neutral-800 text-neutral-500'
                 }`}
               >
-                {config.highPassEnabled !== false ? 'FILTER ON' : 'BYPASS'}
+                {config.highPassEnabled !== false ? 'LOW-CUT ON' : 'BYPASS'}
               </button>
             </div>
             <p className="text-[10px] text-neutral-400 mb-2">
-              Low-cut frequency filter and tube/tape warmth saturation.
+              Elimina retumbe del micrófono, ruido de aire y añade calidez valvular.
             </p>
           </div>
 
@@ -178,7 +359,7 @@ export const VocalDspRack: React.FC<VocalDspRackProps> = ({
             {/* Low-Cut Filter Slider */}
             <div>
               <div className="flex justify-between text-[10px] text-neutral-400 mb-0.5">
-                <span>Low-Cut Filter</span>
+                <span>Corte de Graves (Low-Cut)</span>
                 <span className="text-rose-400 font-mono font-bold">
                   {config.lowCutFreq || config.highPassFreq || 80} Hz
                 </span>
@@ -186,7 +367,7 @@ export const VocalDspRack: React.FC<VocalDspRackProps> = ({
               <input
                 type="range"
                 min={20}
-                max={400}
+                max={300}
                 step={5}
                 value={config.lowCutFreq || config.highPassFreq || 80}
                 onChange={(e) =>
@@ -199,15 +380,15 @@ export const VocalDspRack: React.FC<VocalDspRackProps> = ({
               />
               <div className="flex justify-between text-[8px] text-neutral-500 mt-0.5">
                 <span>20 Hz</span>
-                <span>80 Hz (Vocal standard)</span>
-                <span>400 Hz</span>
+                <span>80 Hz (Estándar Vocal)</span>
+                <span>300 Hz</span>
               </div>
             </div>
 
-            {/* Warmth Saturation Knob */}
+            {/* Warmth Tube Saturation */}
             <div>
               <div className="flex justify-between text-[10px] text-neutral-400 mb-0.5">
-                <span>Warmth (Tape/Tube Saturation)</span>
+                <span>Calidez Analógica (Warmth)</span>
                 <span className="text-amber-400 font-mono font-bold">
                   {config.warmth || 0}%
                 </span>
@@ -221,14 +402,9 @@ export const VocalDspRack: React.FC<VocalDspRackProps> = ({
                 onChange={(e) => onChange({ warmth: Number(e.target.value) })}
                 className="w-full accent-amber-500 h-1 bg-neutral-800 rounded cursor-pointer"
               />
-              <div className="flex justify-between text-[8px] text-neutral-500 mt-0.5">
-                <span>Clean</span>
-                <span>Harmonic Warmth</span>
-                <span>Driven</span>
-              </div>
             </div>
 
-            {/* 3-Band EQ Quick Gains */}
+            {/* 3-Band Parametric EQ */}
             <div className="pt-1 grid grid-cols-3 gap-1.5 text-center">
               <div className="bg-neutral-900 p-1 rounded border border-neutral-800">
                 <span className="text-[8px] text-neutral-400 block">Low 120Hz</span>
@@ -252,27 +428,27 @@ export const VocalDspRack: React.FC<VocalDspRackProps> = ({
           </div>
         </div>
 
-        {/* Module 3: Studio Reverb (Convolver Node) */}
+        {/* Module 4: Studio Reverb & Stereo Delay */}
         <div className="bg-neutral-950 border border-neutral-800 rounded-lg p-3 flex flex-col justify-between">
           <div>
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center justify-between mb-1.5">
               <span className="font-semibold text-indigo-400 flex items-center gap-1.5 text-[11px]">
-                <Volume2 className="w-3.5 h-3.5" /> Reverb (Convolver)
+                <Volume2 className="w-3.5 h-3.5" /> Reverb de Estudio &amp; Eco
               </span>
-              <span className="text-[9px] bg-indigo-950 text-indigo-300 px-1.5 py-0.5 rounded border border-indigo-700/50 font-mono">
-                {Math.round((config.reverbWet !== undefined ? config.reverbWet : config.reverbSend) * 100)}% WET
+              <span className="text-[9px] bg-indigo-950 text-indigo-300 px-1.5 py-0.5 rounded border border-indigo-700/50 font-mono font-bold">
+                {Math.round((config.reverbWet !== undefined ? config.reverbWet : config.reverbSend) * 100)}% REV
               </span>
             </div>
             <p className="text-[10px] text-neutral-400 mb-2">
-              Stereo impulse response studio acoustic chamber.
+              Cámara acústica convolver estéreo y repeticiones espaciales.
             </p>
           </div>
 
-          <div className="space-y-3">
-            {/* Reverb Wet/Dry Slider */}
+          <div className="space-y-2.5">
+            {/* Reverb Mix */}
             <div>
-              <div className="flex justify-between text-[10px] text-neutral-400 mb-1">
-                <span>Reverb Wet / Dry Mix</span>
+              <div className="flex justify-between text-[10px] text-neutral-400 mb-0.5">
+                <span>Mezcla Reverb (Wet/Dry)</span>
                 <span className="text-indigo-400 font-mono font-bold">
                   {Math.round((config.reverbWet !== undefined ? config.reverbWet : config.reverbSend) * 100)}%
                 </span>
@@ -289,94 +465,12 @@ export const VocalDspRack: React.FC<VocalDspRackProps> = ({
                 }}
                 className="w-full accent-indigo-500 h-1 bg-neutral-800 rounded cursor-pointer"
               />
-              <div className="flex justify-between text-[8px] text-neutral-500 mt-0.5">
-                <span>Dry (0%)</span>
-                <span>Medium Room (30%)</span>
-                <span>Full Wet (100%)</span>
-              </div>
-            </div>
-
-            <div className="bg-neutral-900 border border-neutral-800 rounded p-2 text-[9px] text-neutral-400 space-y-1">
-              <div className="flex justify-between">
-                <span>Impulse Response:</span>
-                <span className="text-neutral-300">Studio Room 2.2s Decay</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Pre-Delay:</span>
-                <span className="text-neutral-300">20 ms</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Space Routing:</span>
-                <span className="text-indigo-400">Offline + Live Convolver</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Module 4: Delay / Echo */}
-        <div className="bg-neutral-950 border border-neutral-800 rounded-lg p-3 flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="font-semibold text-cyan-400 flex items-center gap-1.5 text-[11px]">
-                <Sliders className="w-3.5 h-3.5" /> Delay / Echo
-              </span>
-              <span className="text-[9px] bg-cyan-950 text-cyan-300 px-1.5 py-0.5 rounded border border-cyan-700/50 font-mono">
-                {Math.round((config.delaySend || 0) * 100)}% SEND
-              </span>
-            </div>
-            <p className="text-[10px] text-neutral-400 mb-2">
-              Tempo-synced stereo echo with natural high-frequency damping.
-            </p>
-          </div>
-
-          <div className="space-y-2.5">
-            {/* Delay Time */}
-            <div>
-              <div className="flex justify-between text-[10px] text-neutral-400 mb-0.5">
-                <span>Delay Time</span>
-                <span className="text-cyan-400 font-mono font-bold">
-                  {Math.round((config.delayTime || 0.28) * 1000)} ms
-                </span>
-              </div>
-              <input
-                type="range"
-                min={0.05}
-                max={1.0}
-                step={0.01}
-                value={config.delayTime || 0.28}
-                onChange={(e) => onChange({ delayTime: Number(e.target.value) })}
-                className="w-full accent-cyan-500 h-1 bg-neutral-800 rounded cursor-pointer"
-              />
-              <div className="flex justify-between text-[8px] text-neutral-500 mt-0.5">
-                <span>50ms (Slapback)</span>
-                <span>280ms (1/4 Note)</span>
-                <span>1000ms</span>
-              </div>
-            </div>
-
-            {/* Delay Feedback */}
-            <div>
-              <div className="flex justify-between text-[10px] text-neutral-400 mb-0.5">
-                <span>Echo Feedback</span>
-                <span className="text-cyan-400 font-mono font-bold">
-                  {Math.round((config.delayFeedback || 0.35) * 100)}%
-                </span>
-              </div>
-              <input
-                type="range"
-                min={0}
-                max={0.9}
-                step={0.02}
-                value={config.delayFeedback || 0.35}
-                onChange={(e) => onChange({ delayFeedback: Number(e.target.value) })}
-                className="w-full accent-cyan-500 h-1 bg-neutral-800 rounded cursor-pointer"
-              />
             </div>
 
             {/* Delay Send */}
             <div>
               <div className="flex justify-between text-[10px] text-neutral-400 mb-0.5">
-                <span>Echo Send Amount</span>
+                <span>Envío de Delay / Eco</span>
                 <span className="text-cyan-400 font-mono font-bold">
                   {Math.round((config.delaySend || 0) * 100)}%
                 </span>
@@ -388,6 +482,25 @@ export const VocalDspRack: React.FC<VocalDspRackProps> = ({
                 step={0.02}
                 value={config.delaySend || 0}
                 onChange={(e) => onChange({ delaySend: Number(e.target.value) })}
+                className="w-full accent-cyan-500 h-1 bg-neutral-800 rounded cursor-pointer"
+              />
+            </div>
+
+            {/* Delay Time */}
+            <div>
+              <div className="flex justify-between text-[10px] text-neutral-400 mb-0.5">
+                <span>Tiempo de Eco (Tempo)</span>
+                <span className="text-cyan-400 font-mono font-bold">
+                  {Math.round((config.delayTime || 0.28) * 1000)} ms
+                </span>
+              </div>
+              <input
+                type="range"
+                min={0.05}
+                max={1.0}
+                step={0.01}
+                value={config.delayTime || 0.28}
+                onChange={(e) => onChange({ delayTime: Number(e.target.value) })}
                 className="w-full accent-cyan-500 h-1 bg-neutral-800 rounded cursor-pointer"
               />
             </div>

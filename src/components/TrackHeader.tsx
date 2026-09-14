@@ -184,22 +184,33 @@ export const TrackHeader: React.FC<TrackHeaderProps> = ({
           {track.solo ? <Headphones className="w-3 h-3" /> : 'S'}
         </button>
 
-        {/* Vocal DSP Chain toggle / badge */}
+        {/* Vocal DSP & Auto-Tune Chain toggle / badge */}
         <button
           id={`track-vocal-dsp-${track.id}`}
           onClick={(e) => {
             e.stopPropagation();
             onOpenInspector('vocal');
           }}
-          title="Open Vocal Chain DSP (80Hz Cut, Compressor, EQ, Formants, Space)"
-          className={`px-1.5 h-6 rounded flex items-center gap-1 text-[10px] font-medium transition-all ${
-            track.vocalDsp.compressorEnabled || track.vocalDsp.reverbSend > 0.05
+          title="Open Auto-Tune & Vocal Studio Rack (Auto-Tune, Compresor Anti-Gallitos, 80Hz Cut, Reverb)"
+          className={`px-2 h-6 rounded flex items-center gap-1 text-[10px] font-semibold transition-all cursor-pointer ${
+            track.vocalDsp.pitchCorrection > 0
+              ? 'bg-emerald-950 border border-emerald-500 text-emerald-300 shadow-sm'
+              : track.vocalDsp.compressorEnabled || track.vocalDsp.reverbSend > 0.05
               ? 'bg-rose-950/80 border border-rose-700/80 text-rose-300'
               : 'bg-neutral-800 text-neutral-400 hover:text-white'
           }`}
         >
-          <Sliders className="w-2.5 h-2.5" />
-          <span>DSP</span>
+          {track.vocalDsp.pitchCorrection > 0 ? (
+            <>
+              <Sparkles className="w-2.5 h-2.5 text-emerald-400" />
+              <span>Tune {track.vocalDsp.pitchCorrection}%</span>
+            </>
+          ) : (
+            <>
+              <Sliders className="w-2.5 h-2.5" />
+              <span>Auto-Tune / FX</span>
+            </>
+          )}
         </button>
 
         {/* AI Audio Cleaner & Restorer badge */}

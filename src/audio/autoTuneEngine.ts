@@ -10,6 +10,96 @@ export const SCALE_INTERVALS: { [key: string]: number[] } = {
 };
 
 export const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+export const KEYS = NOTE_NAMES;
+export const SCALES = ['chromatic', 'major', 'minor', 'pentatonic'] as const;
+
+export interface AutoTunePreset {
+  id: string;
+  name: string;
+  description: string;
+  intensity: number;
+  scale: 'major' | 'minor' | 'chromatic' | 'pentatonic';
+}
+
+export const AUTO_TUNE_PRESETS: AutoTunePreset[] = [
+  {
+    id: 'hard_tune',
+    name: 'Hard Auto-Tune (Trap / T-Pain)',
+    description: 'Afinación 100% robótica y agresiva que encaja exactamente en la escala musical.',
+    intensity: 100,
+    scale: 'minor',
+  },
+  {
+    id: 'modern_pop',
+    name: 'Pop Moderno (Pulido)',
+    description: 'Afinación natural de estudio al 75% que preserva la emoción y corrige desvíos.',
+    intensity: 75,
+    scale: 'major',
+  },
+  {
+    id: 'subtle_assist',
+    name: 'Sutil / Pitch Assist',
+    description: 'Corrección transparente al 40% para afinación acústica indetectable.',
+    intensity: 40,
+    scale: 'chromatic',
+  },
+  {
+    id: 'bypass',
+    name: 'Desactivado (Natural)',
+    description: 'Voz cruda sin corrección de afinación.',
+    intensity: 0,
+    scale: 'chromatic',
+  },
+];
+
+export interface CompressorPreset {
+  id: string;
+  name: string;
+  description: string;
+  threshold: number;
+  ratio: number;
+  attack: number;
+  release: number;
+}
+
+export const COMPRESSOR_PRESETS: CompressorPreset[] = [
+  {
+    id: 'anti_gallitos',
+    name: 'Anti-Gallitos (Vocal Cracks Smoothing)',
+    description: 'Aplana picos repentinos, quiebres de voz y cambios bruscos de volumen.',
+    threshold: -24,
+    ratio: 6.0,
+    attack: 0.005,
+    release: 0.12,
+  },
+  {
+    id: 'lead_punchy',
+    name: 'Voz Principal Punchy',
+    description: 'Compresión moderna de radio que resalta la voz sobre la pista instrumental.',
+    threshold: -18,
+    ratio: 4.0,
+    attack: 0.015,
+    release: 0.2,
+  },
+  {
+    id: 'gentle_leveler',
+    name: 'Nivelación Suave',
+    description: 'Control de dinámica transparente para baladas y grabaciones íntimas.',
+    threshold: -14,
+    ratio: 2.5,
+    attack: 0.025,
+    release: 0.3,
+  },
+  {
+    id: 'brickwall_limiter',
+    name: 'Limitador de Picos Extremo',
+    description: 'Detiene cualquier saturación o distorsión sin importar la fuerza del grito.',
+    threshold: -28,
+    ratio: 10.0,
+    attack: 0.002,
+    release: 0.08,
+  },
+];
 
 /**
  * Given a key (e.g. 'C') and scale mode ('major', 'minor', etc.), returns all allowed MIDI pitches
@@ -25,6 +115,16 @@ export function getAllowedPitchClasses(rootKey: string, scale: string): Set<numb
   }
 
   return allowed;
+}
+
+/**
+ * Returns array of note names in a given key and scale (e.g. ['C', 'D', 'E', 'F', 'G', 'A', 'B'])
+ */
+export function getScaleNoteNames(rootKey: string, scale: string): string[] {
+  const rootIndex = NOTE_NAMES.indexOf(rootKey);
+  const base = rootIndex >= 0 ? rootIndex : 0;
+  const intervals = SCALE_INTERVALS[scale] || SCALE_INTERVALS.chromatic;
+  return intervals.map((interval) => NOTE_NAMES[(base + interval) % 12]);
 }
 
 /**
@@ -77,7 +177,11 @@ export class ToneAutoTuneEngine {
   public pitchShiftNode: Tone.PitchShift;
   private currentShift = 0;
 
-  constructor() {
+  constructor(audioCtx?: AudioContext) {
+    if (audioCtx && Tone.getContext().rawContext !== audioCtx) {
+      Tone.setContext(audioCtx);
+    }
+
     this.pitchShiftNode = new Tone.PitchShift({
       pitch: 0,
       windowSize: 0.08, // crisp response for vocals without transient smearing
@@ -95,11 +199,19 @@ export class ToneAutoTuneEngine {
     return this.currentShift;
   }
 
-  public connect(dest: Tone.InputNode | AudioNode) {
-    if ('input' in (dest as any) || 'context' in (dest as any)) {
-      this.pitchShiftNode.connect(dest as any);
-    } else {
-      Tone.connect(this.pitchShiftNode, dest as any);
+  public connectSource(source: AudioNode) {
+    try {
+      Tone.connect(source, this.pitchShiftNode);
+    } catch {
+      source.connect((this.pitchShiftNode as any).input || (this.pitchShiftNode as any));
+    }
+  }
+
+  public connectDestination(dest: AudioNode) {
+    try {
+      Tone.connect(this.pitchShiftNode, dest);
+    } catch {
+      (this.pitchShiftNode as any).connect(dest);
     }
   }
 

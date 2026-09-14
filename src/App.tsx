@@ -19,7 +19,7 @@ import {
   TrackDspNodes,
 } from './audio/dspChain';
 import { AudioRecorder } from './audio/audioRecorder';
-import { calculateAutoTuneShift } from './audio/autoTuneEngine';
+import { calculateAutoTuneShift, ToneAutoTuneEngine } from './audio/autoTuneEngine';
 import { generateDemoStems } from './audio/synthesizerDemo';
 import { TransportBar } from './components/TransportBar';
 import { TrackHeader } from './components/TrackHeader';
@@ -76,6 +76,7 @@ export default function App() {
   const masterBusRef = useRef<MasterBusSystem | null>(null);
   const trackDspMapRef = useRef<{ [trackId: string]: TrackDspNodes }>({});
   const activeSourcesRef = useRef<{ [trackId: string]: AudioBufferSourceNode }>({});
+  const activePitchShiftersRef = useRef<{ [trackId: string]: ToneAutoTuneEngine }>({});
   const recorderRef = useRef<AudioRecorder | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -292,6 +293,16 @@ export default function App() {
       }
     });
     activeSourcesRef.current = {};
+
+    (Object.values(activePitchShiftersRef.current) as ToneAutoTuneEngine[]).forEach((shifter) => {
+      try {
+        shifter.disconnect();
+        shifter.dispose();
+      } catch {
+        // already disposed
+      }
+    });
+    activePitchShiftersRef.current = {};
   }, []);
 
   // Launch audio playback for all audible tracks aligned with timeline currentTime
@@ -332,10 +343,19 @@ export default function App() {
         }
 
         if (totalSemitones !== 0) {
-          src.playbackRate.value = Math.pow(2, totalSemitones / 12);
+          try {
+            const pitchEngine = new ToneAutoTuneEngine(ctx);
+            pitchEngine.setPitch(totalSemitones);
+            pitchEngine.connectSource(src);
+            pitchEngine.connectDestination(dsp.inputNode);
+            activePitchShiftersRef.current[track.id] = pitchEngine;
+          } catch {
+            src.playbackRate.value = Math.pow(2, totalSemitones / 12);
+            src.connect(dsp.inputNode);
+          }
+        } else {
+          src.connect(dsp.inputNode);
         }
-
-        src.connect(dsp.inputNode);
 
         // Calculate offset into the audio buffer
         let bufferOffset = 0;
