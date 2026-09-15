@@ -1,6 +1,6 @@
 import React from 'react';
 import { AiEnhancerConfig } from '../types/audio';
-import { Sparkles, ShieldCheck, Zap, Volume2, HelpCircle } from 'lucide-react';
+import { Sparkles, ShieldCheck, Zap, Volume2, Bug, BugOff } from 'lucide-react';
 
 interface AiAudioCleanerRackProps {
   trackName: string;
@@ -16,7 +16,7 @@ export const AiAudioCleanerRack: React.FC<AiAudioCleanerRackProps> = ({
   onClose,
 }) => {
   return (
-    <div className="bg-neutral-900 border-t border-neutral-800 p-4 text-neutral-200 select-none overflow-y-auto max-h-80">
+    <div className="bg-neutral-900 border-t border-neutral-800 p-4 text-neutral-200 select-none overflow-y-auto max-h-96">
       {/* Rack Header */}
       <div className="flex items-center justify-between border-b border-neutral-800 pb-2 mb-3">
         <div className="flex items-center gap-2">
@@ -34,9 +34,14 @@ export const AiAudioCleanerRack: React.FC<AiAudioCleanerRackProps> = ({
               <span className="text-[9px] bg-indigo-950 text-indigo-300 px-1.5 py-0.5 rounded border border-indigo-700/50 font-semibold uppercase">
                 Resynthesis DSP
               </span>
+              {config.cricketSuppression && (
+                <span className="text-[9px] bg-emerald-950 text-emerald-300 px-1.5 py-0.5 rounded border border-emerald-700/50 font-semibold flex items-center gap-1">
+                  🦗 Anti-Grillos Activo
+                </span>
+              )}
             </div>
             <p className="text-[10px] text-neutral-400">
-              Noise Suppression Gate • Harmonic Exciter (Preserves Chords &amp; Pitch) • Transient Shaper • A/B Audition
+              Supresor de Grillos &amp; Chirridos • Noise Gate • Harmonic Exciter • Transient Shaper • A/B Audition
             </p>
           </div>
         </div>
@@ -76,9 +81,88 @@ export const AiAudioCleanerRack: React.FC<AiAudioCleanerRackProps> = ({
         </div>
       </div>
 
-      {/* 4 Main AI Enhancement Modules */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-xs">
-        {/* Module 1: Noise Removal & Gate */}
+      {/* Main AI Enhancement & Cleaning Modules */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 text-xs">
+        {/* Module 1: Anti-Cricket & Insect Chirp Notch Filter */}
+        <div className="bg-neutral-950 border border-emerald-900/50 rounded-lg p-3 flex flex-col justify-between shadow-sm">
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="font-semibold text-emerald-400 flex items-center gap-1.5 text-[11px]">
+                <BugOff className="w-3.5 h-3.5 text-emerald-400" /> Supresor de Grillos
+              </span>
+              <button
+                onClick={() => onChange({ cricketSuppression: !config.cricketSuppression })}
+                className={`text-[9px] px-2 py-0.5 rounded font-bold transition-all ${
+                  config.cricketSuppression
+                    ? 'bg-emerald-600 text-white'
+                    : 'bg-neutral-800 text-neutral-400 hover:text-white'
+                }`}
+              >
+                {config.cricketSuppression ? 'ACTIVO' : 'APAGADO'}
+              </button>
+            </div>
+            <p className="text-[10px] text-neutral-400 mb-2">
+              Filtra y silencia quirúrgicamente el canto de grillos, cigarras e insectos nocturnos en el fondo.
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <div>
+              <div className="flex justify-between text-[10px] text-neutral-400">
+                <span>Frecuencia del Grillo</span>
+                <span className="text-emerald-400 font-mono">{config.cricketFrequency || 4800} Hz</span>
+              </div>
+              <input
+                type="range"
+                min={3600}
+                max={7500}
+                step={50}
+                disabled={!config.cricketSuppression}
+                value={config.cricketFrequency || 4800}
+                onChange={(e) => onChange({ cricketFrequency: Number(e.target.value) })}
+                className="w-full accent-emerald-500 h-1 bg-neutral-800 rounded cursor-pointer disabled:opacity-40"
+              />
+              {/* Presets */}
+              <div className="flex gap-1 mt-1">
+                <button
+                  type="button"
+                  onClick={() => onChange({ cricketFrequency: 4800 })}
+                  className="text-[8px] px-1 py-0.5 rounded bg-neutral-900 border border-neutral-800 text-neutral-400 hover:text-emerald-300"
+                  title="Frecuencia típica de grillo de campo (4.8 kHz)"
+                >
+                  Grillo Común
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onChange({ cricketFrequency: 6200 })}
+                  className="text-[8px] px-1 py-0.5 rounded bg-neutral-900 border border-neutral-800 text-neutral-400 hover:text-emerald-300"
+                  title="Cigarra o grillo agudo (6.2 kHz)"
+                >
+                  Cigarra/Agudo
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <div className="flex justify-between text-[10px] text-neutral-400">
+                <span>Profundidad Notch</span>
+                <span className="text-emerald-400 font-mono">-{config.cricketNotchDepth || 28} dB</span>
+              </div>
+              <input
+                type="range"
+                min={10}
+                max={36}
+                step={1}
+                disabled={!config.cricketSuppression}
+                value={config.cricketNotchDepth || 28}
+                onChange={(e) => onChange({ cricketNotchDepth: Number(e.target.value) })}
+                className="w-full accent-emerald-500 h-1 bg-neutral-800 rounded cursor-pointer disabled:opacity-40"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Module 2: Noise Removal & Gate */}
         <div className="bg-neutral-950 border border-neutral-800 rounded-lg p-3 flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between mb-1.5">
@@ -126,7 +210,7 @@ export const AiAudioCleanerRack: React.FC<AiAudioCleanerRackProps> = ({
           </div>
         </div>
 
-        {/* Module 2: Harmonic Exciter & Resynthesis */}
+        {/* Module 3: Harmonic Exciter & Resynthesis */}
         <div className="bg-neutral-950 border border-neutral-800 rounded-lg p-3 flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between mb-1.5">
@@ -165,7 +249,7 @@ export const AiAudioCleanerRack: React.FC<AiAudioCleanerRackProps> = ({
           </div>
         </div>
 
-        {/* Module 3: Transient Shaper / Punch */}
+        {/* Module 4: Transient Shaper / Punch */}
         <div className="bg-neutral-950 border border-neutral-800 rounded-lg p-3 flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between mb-1.5">
@@ -201,7 +285,7 @@ export const AiAudioCleanerRack: React.FC<AiAudioCleanerRackProps> = ({
           </div>
         </div>
 
-        {/* Module 4: Spectral Clarity & Air */}
+        {/* Module 5: Spectral Clarity & Air */}
         <div className="bg-neutral-950 border border-neutral-800 rounded-lg p-3 flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between mb-1.5">

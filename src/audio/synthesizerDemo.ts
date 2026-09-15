@@ -55,14 +55,9 @@ function renderDrumsAndBass(
         synthesizeSnare(ctx, masterGain, beatTime);
       }
 
-      // 8th-note Hi-Hats
-      synthesizeHiHat(ctx, masterGain, beatTime, 0.15);
-      synthesizeHiHat(ctx, masterGain, beatTime + secondsPerBeat * 0.5, 0.08);
-
-      // 16th-note ghost hats on bar 4 and 8
-      if ((bar === 3 || bar === 7) && beat === 3) {
-        synthesizeHiHat(ctx, masterGain, beatTime + secondsPerBeat * 0.75, 0.12);
-      }
+      // Studio Closed Hi-Hats (velvety metallic tone, completely free of cricket/insect artifacts)
+      synthesizeHiHat(ctx, masterGain, beatTime, 0.045);
+      synthesizeHiHat(ctx, masterGain, beatTime + secondsPerBeat * 0.5, 0.022);
     }
 
     // Bassline (smooth R&B/HipHop bass progression: F -> Eb -> Db -> C)
@@ -131,30 +126,69 @@ function synthesizeSnare(ctx: OfflineAudioContext, dest: AudioNode, time: number
   whiteNoise.stop(time + 0.22);
 }
 
-function synthesizeHiHat(ctx: OfflineAudioContext, dest: AudioNode, time: number, vol = 0.15) {
-  const bufferSize = Math.floor(ctx.sampleRate * 0.05);
+// Studio metallic closed hi-hat (modeled after analog TR-808/909 cymbal cluster)
+// Completely removes the harsh highpass noise bursts that sound like crickets in the background
+function synthesizeHiHat(ctx: OfflineAudioContext, dest: AudioNode, time: number, vol = 0.04) {
+  // 6-oscillator inharmonic cluster for authentic bronze cymbal ring
+  const frequencies = [263, 400, 421, 474, 587, 845];
+  const clusterGain = ctx.createGain();
+  clusterGain.gain.setValueAtTime(vol * 0.4, time);
+
+  // Bandpass filter to isolate the metallic shimmer (centered around 9.5 kHz)
+  const bandpass = ctx.createBiquadFilter();
+  bandpass.type = 'bandpass';
+  bandpass.frequency.setValueAtTime(9500, time);
+  bandpass.Q.setValueAtTime(1.8, time);
+
+  // Lowpass filter to avoid any high-frequency insect stridulation / cricket frequencies
+  const lowpass = ctx.createBiquadFilter();
+  lowpass.type = 'lowpass';
+  lowpass.frequency.setValueAtTime(12000, time);
+
+  // Quick exponential decay envelope
+  const envelope = ctx.createGain();
+  envelope.gain.setValueAtTime(1.0, time);
+  envelope.gain.exponentialRampToValueAtTime(0.0001, time + 0.038);
+
+  frequencies.forEach((f) => {
+    const osc = ctx.createOscillator();
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(f, time);
+    osc.connect(clusterGain);
+    osc.start(time);
+    osc.stop(time + 0.04);
+  });
+
+  clusterGain.connect(bandpass);
+  bandpass.connect(lowpass);
+  lowpass.connect(envelope);
+  envelope.connect(dest);
+
+  // Subtle smoothed pink-noise tap for gentle stick impact
+  const bufferSize = Math.floor(ctx.sampleRate * 0.03);
   const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
   const output = noiseBuffer.getChannelData(0);
   for (let i = 0; i < bufferSize; i++) {
-    output[i] = Math.random() * 2 - 1;
+    output[i] = (Math.random() * 2 - 1) * 0.15;
   }
   const noise = ctx.createBufferSource();
   noise.buffer = noiseBuffer;
 
-  const filter = ctx.createBiquadFilter();
-  filter.type = 'highpass';
-  filter.frequency.value = 7500;
+  const noiseFilter = ctx.createBiquadFilter();
+  noiseFilter.type = 'bandpass';
+  noiseFilter.frequency.setValueAtTime(8500, time);
+  noiseFilter.Q.setValueAtTime(2.0, time);
 
-  const gain = ctx.createGain();
-  gain.gain.setValueAtTime(vol, time);
-  gain.gain.exponentialRampToValueAtTime(0.001, time + 0.045);
+  const noiseGain = ctx.createGain();
+  noiseGain.gain.setValueAtTime(vol * 0.25, time);
+  noiseGain.gain.exponentialRampToValueAtTime(0.0001, time + 0.03);
 
-  noise.connect(filter);
-  filter.connect(gain);
-  gain.connect(dest);
+  noise.connect(noiseFilter);
+  noiseFilter.connect(noiseGain);
+  noiseGain.connect(dest);
 
   noise.start(time);
-  noise.stop(time + 0.05);
+  noise.stop(time + 0.03);
 }
 
 function synthesizeBass(

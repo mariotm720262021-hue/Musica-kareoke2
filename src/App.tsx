@@ -57,10 +57,13 @@ const DEFAULT_AI_ENHANCER: AiEnhancerConfig = {
   enabled: true,
   noiseGateThreshold: -42,
   noiseReduction: 60,
-  harmonicExciter: 45,
-  transientPunch: 40,
+  harmonicExciter: 30, // Smooth harmonic shine without harsh upper ringing
+  transientPunch: 30,
   spectralClarity: 50,
   abTestMode: 'processed',
+  cricketSuppression: true,
+  cricketFrequency: 4800,
+  cricketNotchDepth: 28,
 };
 
 export default function App() {
@@ -95,7 +98,7 @@ export default function App() {
       startTime: 0,
       duration: 19.2,
       vocalDsp: { ...DEFAULT_VOCAL_DSP, highPassEnabled: false, compressorEnabled: false, reverbSend: 0.05, delaySend: 0 },
-      aiEnhancer: { ...DEFAULT_AI_ENHANCER, harmonicExciter: 60, transientPunch: 65 },
+      aiEnhancer: { ...DEFAULT_AI_ENHANCER, harmonicExciter: 25, transientPunch: 30, cricketSuppression: true },
     },
     {
       id: 'track_keys_lead',
@@ -112,7 +115,7 @@ export default function App() {
       startTime: 0,
       duration: 19.2,
       vocalDsp: { ...DEFAULT_VOCAL_DSP, highPassEnabled: false, compressorEnabled: false, reverbSend: 0.25, delaySend: 0.15 },
-      aiEnhancer: { ...DEFAULT_AI_ENHANCER, harmonicExciter: 50, spectralClarity: 65 },
+      aiEnhancer: { ...DEFAULT_AI_ENHANCER, harmonicExciter: 30, spectralClarity: 50, cricketSuppression: true },
     },
     {
       id: 'track_lead_vocal',

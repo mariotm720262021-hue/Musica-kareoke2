@@ -30,6 +30,8 @@ export function createStudioImpulseResponse(
   const right = impulse.getChannelData(1);
 
   const preDelaySamples = Math.floor(sampleRate * preDelay);
+  let filterStateL = 0;
+  let filterStateR = 0;
 
   for (let i = 0; i < length; i++) {
     if (i < preDelaySamples) {
@@ -38,13 +40,20 @@ export function createStudioImpulseResponse(
       continue;
     }
     const t = (i - preDelaySamples) / (length - preDelaySamples);
-    // Exponential decay combined with subtle diffusion
+    // Exponential overall decay
     const envelope = Math.exp(-t * decay);
-    // Early reflections + dense late tail
-    const noiseL = (Math.random() * 2 - 1);
-    const noiseR = (Math.random() * 2 - 1);
-    left[i] = noiseL * envelope;
-    right[i] = noiseR * envelope;
+    // Natural high-frequency absorption over time (air damping)
+    const hfDamping = Math.exp(-t * 6.0);
+    const alpha = 0.25 + 0.5 * hfDamping;
+
+    const noiseL = (Math.random() * 2 - 1) * envelope;
+    const noiseR = (Math.random() * 2 - 1) * envelope;
+
+    filterStateL = filterStateL + alpha * (noiseL - filterStateL);
+    filterStateR = filterStateR + alpha * (noiseR - filterStateR);
+
+    left[i] = filterStateL;
+    right[i] = filterStateR;
   }
 
   return impulse;

@@ -1,4 +1,5 @@
 import { VocalDspConfig, AiEnhancerConfig } from '../types/audio';
+import { createStudioImpulseResponse } from './audioContext';
 
 export interface TrackDspNodes {
   inputNode: GainNode;
@@ -69,6 +70,24 @@ export function createTrackDsp(
   transientFilter.Q.value = 1.4;
 
   const postAiSum = ctx.createGain();
+
+  // 4. Anti-Cricket & Insect High-Frequency Chirp Notch Filters
+  // Crickets produce narrow-band acoustic friction bursts typically at 4200 - 5400 Hz and 2nd harmonic
+  const cricketNotchFilter = ctx.createBiquadFilter();
+  cricketNotchFilter.type = 'peaking';
+  cricketNotchFilter.frequency.value = initialAiEnhancer.cricketFrequency || 4800;
+  cricketNotchFilter.Q.value = 5.5; // Narrow surgical Q
+  cricketNotchFilter.gain.value = initialAiEnhancer.cricketSuppression
+    ? -(initialAiEnhancer.cricketNotchDepth || 28)
+    : 0;
+
+  const cricketHarmonicFilter = ctx.createBiquadFilter();
+  cricketHarmonicFilter.type = 'peaking';
+  cricketHarmonicFilter.frequency.value = Math.min(20000, (initialAiEnhancer.cricketFrequency || 4800) * 2);
+  cricketHarmonicFilter.Q.value = 6.0;
+  cricketHarmonicFilter.gain.value = initialAiEnhancer.cricketSuppression
+    ? -((initialAiEnhancer.cricketNotchDepth || 28) * 0.65)
+    : 0;
 
   // --- VOCAL CHAIN DSP SECTION ---
   // 1. High-Pass Filter (Low-cut at 80Hz default)
@@ -144,8 +163,10 @@ export function createTrackDsp(
   exciterWaveShaper.connect(exciterReturnGain);
   exciterReturnGain.connect(postAiSum);
 
-  // AI Section -> Vocal Chain DSP
-  postAiSum.connect(highPassFilter);
+  // AI Section -> Anti-Cricket Notch -> Vocal Chain DSP
+  postAiSum.connect(cricketNotchFilter);
+  cricketNotchFilter.connect(cricketHarmonicFilter);
+  cricketHarmonicFilter.connect(highPassFilter);
   highPassFilter.connect(compressor);
   compressor.connect(lowShelf);
   lowShelf.connect(midPeak);
@@ -242,6 +263,21 @@ export function createTrackDsp(
     // Transient Shaper & Clarity
     const transientGain = (config.transientPunch / 100) * 4.5;
     transientFilter.gain.setValueAtTime(transientGain, ctx.currentTime);
+
+    // Anti-Cricket & Insect High-Frequency Chirp Notch Filter
+    if (config.cricketSuppression) {
+      const f0 = config.cricketFrequency || 4800;
+      const depth = config.cricketNotchDepth || 28;
+      cricketNotchFilter.frequency.setValueAtTime(f0, ctx.currentTime);
+      cricketNotchFilter.gain.setValueAtTime(-depth, ctx.currentTime);
+
+      const fHarmonic = Math.min(20000, f0 * 2);
+      cricketHarmonicFilter.frequency.setValueAtTime(fHarmonic, ctx.currentTime);
+      cricketHarmonicFilter.gain.setValueAtTime(-depth * 0.65, ctx.currentTime);
+    } else {
+      cricketNotchFilter.gain.setValueAtTime(0, ctx.currentTime);
+      cricketHarmonicFilter.gain.setValueAtTime(0, ctx.currentTime);
+    }
   };
 
   const updateVolumeAndPan = (volume: number, pan: number, muted: boolean) => {
@@ -258,6 +294,8 @@ export function createTrackDsp(
       reverbSendNode.disconnect();
       delaySendNode.disconnect();
       analyserNode.disconnect();
+      cricketNotchFilter.disconnect();
+      cricketHarmonicFilter.disconnect();
     } catch {
       // already disconnected
     }
@@ -366,32 +404,4 @@ export function createMasterBus(ctx: AudioContext): MasterBusSystem {
       delayFeedback.gain.setValueAtTime(feedback, ctx.currentTime);
     },
   };
-}
-
-// Helper to generate impulse response if needed
-function createStudioImpulseResponse(
-  ctx: AudioContext,
-  duration = 2.0,
-  decay = 2.0,
-  preDelay = 0.02
-): AudioBuffer {
-  const sampleRate = ctx.sampleRate;
-  const length = Math.floor(sampleRate * duration);
-  const impulse = ctx.createBuffer(2, length, sampleRate);
-  const left = impulse.getChannelData(0);
-  const right = impulse.getChannelData(1);
-  const preDelaySamples = Math.floor(sampleRate * preDelay);
-
-  for (let i = 0; i < length; i++) {
-    if (i < preDelaySamples) {
-      left[i] = 0;
-      right[i] = 0;
-      continue;
-    }
-    const t = (i - preDelaySamples) / (length - preDelaySamples);
-    const envelope = Math.exp(-t * decay);
-    left[i] = (Math.random() * 2 - 1) * envelope;
-    right[i] = (Math.random() * 2 - 1) * envelope;
-  }
-  return impulse;
 }

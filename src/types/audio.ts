@@ -31,6 +31,10 @@ export interface AiEnhancerConfig {
   transientPunch: number; // 0 to 100%
   spectralClarity: number; // 0 to 100%
   abTestMode: 'processed' | 'original';
+  // Anti-Cricket & Insect High-Frequency Chirp Suppressor
+  cricketSuppression: boolean;
+  cricketFrequency: number; // Hz (typically 4200 - 6800 Hz for field crickets)
+  cricketNotchDepth: number; // dB notch attenuation (e.g. 24 - 36 dB)
 }
 
 export interface AudioTrack {
